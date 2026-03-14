@@ -644,11 +644,11 @@ func (s *Server) handlerUpdateImage(c *gin.Context) {
 	img, err := s.pic.GetImg(c.Request.Context(), path)
 	if err != nil {
 		s.log.Error("failed get image for update", zap.Error(err))
-		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("изображение не найдено")))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/view/%s?error=%s", path, url.QueryEscape("изображение не найдено")))
 		return
 	}
 	if img.UserID != user.ID {
-		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("нет прав на редактирование")))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/view/%s?error=%s", path, url.QueryEscape("нет прав на редактирование")))
 		return
 	}
 
@@ -664,11 +664,27 @@ func (s *Server) handlerUpdateImage(c *gin.Context) {
 	err = s.pic.UpdateImage(c.Request.Context(), user.ID, img.ID, isPublicPtr, tagsPtr)
 	if err != nil {
 		s.log.Error("failed update image", zap.Error(err))
-		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("не удалось обновить изображение")))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/view/%s?error=%s", path, url.QueryEscape("не удалось обновить изображение")))
 		return
 	}
 
-	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?info=%s", path, url.QueryEscape("изображение обновлено")))
+	// Получаем параметры фильтрации из запроса (tags и key)
+	tagsParam := strings.TrimSpace(c.Query("tags"))
+	keyParam := strings.TrimSpace(c.Query("key"))
+	// Строим URL для редиректа
+	redirectURL := fmt.Sprintf("/i/view/%s", path)
+	queryParams := make([]string, 0)
+	if tagsParam != "" {
+		queryParams = append(queryParams, "tags="+url.QueryEscape(tagsParam))
+	}
+	if keyParam != "" {
+		queryParams = append(queryParams, "key="+url.QueryEscape(keyParam))
+	}
+	queryParams = append(queryParams, "info="+url.QueryEscape("изображение обновлено"))
+	if len(queryParams) > 0 {
+		redirectURL += "?" + strings.Join(queryParams, "&")
+	}
+	c.Redirect(http.StatusSeeOther, redirectURL)
 }
 
 // POST /view/:y/:m/:d/:h/:filename/delete - удаление изображения

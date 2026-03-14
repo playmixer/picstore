@@ -87,13 +87,15 @@
         {{ end }}
     </div>
     <div class="view-image-container">
-        {{ if and .img.IsEncrypted (not .key) }}
+        {{ if not (and .img.IsEncrypted (not .key)) }}
+        <img class="view-image" src="/i/view/{{ .img.Path }}?view=file&key={{ .key }}" alt="Изображение">
+        {{ end }}
+        {{ if .img.IsEncrypted }}
         <div class="encrypted-placeholder" style="width: 100%; max-width: 800px; margin: 0 auto; background-color: #f0f0f0; border-radius: 8px; padding: 40px; text-align: center;">
             <div style="font-size: 64px; margin-bottom: 20px;">🔒</div>
             <h3 style="margin-bottom: 10px;">Изображение зашифровано</h3>
             <p style="color: #666; margin-bottom: 30px;">Для просмотра введите ключ шифрования</p>
             <form method="GET" action="/i/view/{{ .img.Path }}" style="max-width: 400px; margin: 0 auto;">
-                <!-- <input type="hidden" name="view" value="file"> -->
                 <input type="hidden" name="tags" value="{{ .tags }}">
                 <div style="margin-bottom: 15px;">
                     <input type="password" name="key" placeholder="Ключ шифрования" style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
@@ -102,14 +104,9 @@
             </form>
             <p style="font-size: 12px; color: #999; margin-top: 20px;">Ключ хранится только у вас. Не передавайте его другим.</p>
         </div>
-        {{ else }}
-        <img class="view-image" src="/i/view/{{ .img.Path }}?view=file&key={{ .key }}" alt="Изображение">
         {{ end }}
     </div>
     <div class="view-info">
-        <p><strong>ID:</strong> {{ .img.ID }}</p>
-        <p><strong>Путь:</strong> {{ .img.Path }}</p>
-        <p><strong>Публичное:</strong> {{ if .img.IsPublic }}Да{{ else }}Нет{{ end }}</p>
         {{ if .img.Tags }}
         <p><strong>Теги:</strong></p>
         <div class="tags">
@@ -122,7 +119,7 @@
         {{ if and .user .user.ID (eq .user.ID .img.UserID) }}
         <hr style="margin: 20px 0;">
         <h3>Управление изображением</h3>
-        <form method="POST" action="/i/view/{{ .img.Path }}/update" style="margin-bottom: 20px;">
+        <form method="POST" action="/i/view/{{ .img.Path }}/update?tags={{ .tags }}&key={{ .key }}" style="margin-bottom: 20px;">
             <div style="margin-bottom: 10px;">
                 <label>
                     <input type="checkbox" name="is_public" {{ if .img.IsPublic }}checked{{ end }}>
@@ -135,7 +132,7 @@
             </div>
             <button type="submit" style="padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 4px;">Сохранить изменения</button>
         </form>
-        <form method="POST" action="/view/{{ .img.Path }}/delete" onsubmit="return confirm('Вы уверены, что хотите удалить это изображение?');">
+        <form method="POST" action="/i/view/{{ .img.Path }}/delete" onsubmit="return confirm('Вы уверены, что хотите удалить это изображение?');">
             <button type="submit" style="padding: 8px 16px; background-color: #f44336; color: white; border: none; border-radius: 4px;">Удалить изображение</button>
         </form>
         {{ end }}
