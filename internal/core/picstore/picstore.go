@@ -47,6 +47,8 @@ type self interface {
 	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string) (*PicImage, error)
 	GetImg(ctx context.Context, path string) (*PicImage, error)
 	GetPosts(ctx context.Context) ([]*PicImage, error)
+	GetPostsWithTags(ctx context.Context, tags string) ([]*PicImage, error)
+	GetTagsWithCount(ctx context.Context) (map[string]int, error)
 	GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	DeleteImage(ctx context.Context, userID uint, imageID uint) error
@@ -114,6 +116,25 @@ func tagsFromImage(img *models.Image) string {
 		tags = append(tags, t.Name)
 	}
 	return strings.Join(tags, " ")
+}
+
+// containsAllTags проверяет, содержит ли строка тегов изображения все запрошенные теги.
+// imageTags - строка тегов, разделенных пробелами.
+// searchTags - слайс тегов для поиска.
+func containsAllTags(imageTags string, searchTags []string) bool {
+	if len(searchTags) == 0 {
+		return true
+	}
+	tagMap := make(map[string]bool)
+	for _, t := range strings.Fields(imageTags) {
+		tagMap[t] = true
+	}
+	for _, st := range searchTags {
+		if !tagMap[st] {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tags string, data []byte, extension string) (*PicImage, error) {
@@ -243,6 +264,55 @@ func (p *PicStore) GetPosts(ctx context.Context) ([]*PicImage, error) {
 	p.locker[nsPostsPublic].Unlock()
 
 	return data, nil
+}
+
+// GetPostsWithTags возвращает публичные посты, отфильтрованные по тегам.
+// tags - строка тегов, разделенных пробелами.
+func (p *PicStore) GetPostsWithTags(ctx context.Context, tags string) ([]*PicImage, error) {
+	searchTags := strings.Fields(tags)
+	// Получаем все публичные посты (используем кэш)
+	posts, err := p.GetPosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Фильтруем по тегам
+	filtered := make([]*PicImage, 0)
+	for _, img := range posts {
+		if containsAllTags(img.Tags, searchTags) {
+			filtered = append(filtered, img)
+		}
+	}
+	// Нужно переустановить связи Prev/Next для отфильтрованного списка
+	for i := range filtered {
+		if i > 0 {
+			filtered[i].Prev = filtered[i-1]
+		} else {
+			filtered[i].Prev = nil
+		}
+		if i < len(filtered)-1 {
+			filtered[i].Next = filtered[i+1]
+		} else {
+			filtered[i].Next = nil
+		}
+	}
+	return filtered, nil
+}
+
+// GetTagsWithCount возвращает карту тегов с количеством изображений, содержащих каждый тег.
+// Возвращает map[tag]count.
+func (p *PicStore) GetTagsWithCount(ctx context.Context) (map[string]int, error) {
+	posts, err := p.GetPosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tagCount := make(map[string]int)
+	for _, img := range posts {
+		tags := strings.Fields(img.Tags)
+		for _, tag := range tags {
+			tagCount[tag]++
+		}
+	}
+	return tagCount, nil
 }
 
 func (p *PicStore) GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error) {

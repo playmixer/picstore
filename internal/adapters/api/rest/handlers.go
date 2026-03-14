@@ -10,6 +10,8 @@ import (
 	"path"
 	"picstore/internal/adapters/apperror"
 	"picstore/internal/adapters/models"
+	"picstore/internal/core/picstore"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -164,7 +166,14 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 }
 
 func (s *Server) handlerPosts(c *gin.Context) {
-	posts, err := s.pic.GetPosts(c.Request.Context())
+	tagsParam := strings.TrimSpace(c.Query("tags"))
+	var posts []*picstore.PicImage
+	var err error
+	if tagsParam == "" {
+		posts, err = s.pic.GetPosts(c.Request.Context())
+	} else {
+		posts, err = s.pic.GetPostsWithTags(c.Request.Context(), tagsParam)
+	}
 	if err != nil {
 		s.log.Error("failed get posts", zap.Error(err))
 		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/posts?error=%s", url.QueryEscape("не удалось получить посты")))
@@ -196,6 +205,7 @@ func (s *Server) handlerPosts(c *gin.Context) {
 	c.HTML(http.StatusOK, "posts.html", gin.H{
 		"posts": posts[start:end],
 		"user":  s.getUser(c),
+		"tags":  tagsParam,
 		"pagination": gin.H{
 			"total": total,
 			"cur":   curPage,
@@ -203,6 +213,44 @@ func (s *Server) handlerPosts(c *gin.Context) {
 			"next":  next,
 		},
 	})
+}
+
+// GET /api/tags - автодополнение тегов
+func (s *Server) handlerTagsAutocomplete(c *gin.Context) {
+	prefix := strings.ToLower(strings.TrimSpace(c.Query("prefix")))
+	tagsMap, err := s.pic.GetTagsWithCount(c.Request.Context())
+	if err != nil {
+		s.log.Error("failed get tags with count", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "не удалось получить теги"})
+		return
+	}
+
+	type tagItem struct {
+		Tag   string `json:"tag"`
+		Count int    `json:"count"`
+	}
+	result := []tagItem{}
+
+	for tag, count := range tagsMap {
+		if prefix == "" || strings.HasPrefix(strings.ToLower(tag), prefix) {
+			result = append(result, tagItem{Tag: tag, Count: count})
+		}
+	}
+
+	// Сортируем по убыванию количества (самые популярные первые)
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Count == result[j].Count {
+			return result[i].Tag < result[j].Tag
+		}
+		return result[i].Count > result[j].Count
+	})
+
+	// Ограничим количество, чтобы не отдавать слишком много
+	if len(result) > 20 {
+		result = result[:20]
+	}
+
+	c.JSON(http.StatusOK, gin.H{"tags": result})
 }
 
 // GET /view/:y/:m/:d/:h/:filename
@@ -214,6 +262,7 @@ func (s *Server) handlerView(c *gin.Context) {
 	hour := c.Param("h")
 	filename := c.Param("filename")
 	view := c.Query("view")
+	tagsParam := strings.TrimSpace(c.Query("tags"))
 
 	s.log.Debug("view",
 		zap.String("y", year),
@@ -221,6 +270,7 @@ func (s *Server) handlerView(c *gin.Context) {
 		zap.String("d", day),
 		zap.String("h", hour),
 		zap.String("filename", filename),
+		zap.String("tags", tagsParam),
 	)
 
 	path := path.Join(year, month, day, hour, filename)
@@ -239,7 +289,12 @@ func (s *Server) handlerView(c *gin.Context) {
 		return
 	}
 
-	images, err := s.pic.GetPosts(c.Request.Context())
+	var images []*picstore.PicImage
+	if tagsParam == "" {
+		images, err = s.pic.GetPosts(c.Request.Context())
+	} else {
+		images, err = s.pic.GetPostsWithTags(c.Request.Context(), tagsParam)
+	}
 	if err != nil {
 		c.HTML(http.StatusBadRequest, "error.html", gin.H{
 			"error": "Ошибка получения файла",
@@ -257,10 +312,16 @@ func (s *Server) handlerView(c *gin.Context) {
 	prev := ""
 	if img.Prev != nil {
 		prev = fmt.Sprintf("/view/%s", img.Prev.Path)
+		if tagsParam != "" {
+			prev += "?tags=" + url.QueryEscape(tagsParam)
+		}
 	}
 	next := ""
 	if img.Next != nil {
 		next = fmt.Sprintf("/view/%s", img.Next.Path)
+		if tagsParam != "" {
+			next += "?tags=" + url.QueryEscape(tagsParam)
+		}
 	}
 	c.HTML(http.StatusOK, "view.html", gin.H{
 		"user":  user,
@@ -268,6 +329,7 @@ func (s *Server) handlerView(c *gin.Context) {
 		"img":   img,
 		"prev":  prev,
 		"next":  next,
+		"tags":  tagsParam,
 	})
 }
 

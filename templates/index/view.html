@@ -75,7 +75,11 @@
         {{ else }}
             <span class="nav-button disabled">← Предыдущее изображение</span>
         {{ end }}
-        <a class="nav-button" href="/posts">К списку</a>
+        {{ if .tags }}
+            <a class="nav-button" href="/posts?tags={{ .tags }}">К списку (фильтр: {{ .tags }})</a>
+        {{ else }}
+            <a class="nav-button" href="/posts">К списку</a>
+        {{ end }}
         {{ if .next }}
             <a class="nav-button" href="{{ .next }}">Следующее изображение →</a>
         {{ else }}
