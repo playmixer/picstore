@@ -270,3 +270,132 @@ func (s *Server) handlerView(c *gin.Context) {
 		"next":  next,
 	})
 }
+
+// GET /i/posts - список постов текущего пользователя
+func (s *Server) handlerUserPosts(c *gin.Context) {
+	user := s.getUser(c)
+	if user.ID == 0 {
+		// не аутентифицирован, но middleware authMiddleware уже должен был отклонить
+		c.Redirect(http.StatusSeeOther, "/sso/auth")
+		return
+	}
+
+	posts, err := s.pic.GetUserPosts(c.Request.Context(), user.ID)
+	if err != nil {
+		s.log.Error("failed get user posts", zap.Error(err))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/posts?error=%s", url.QueryEscape("не удалось получить посты")))
+		return
+	}
+
+	page := c.Query("page")
+	if page == "" {
+		page = "1"
+	}
+	curPage := atoi(page)
+	if curPage < 1 {
+		curPage = 1
+	}
+
+	start, end, total := pagify(len(posts), pageSize, curPage)
+	prev := curPage - 1
+	if prev < 1 {
+		prev = 0
+	}
+	next := curPage + 1
+	if next > total {
+		next = 0
+	}
+	c.HTML(http.StatusOK, "posts.html", gin.H{
+		"posts": posts[start:end],
+		"user":  user,
+		"pagination": gin.H{
+			"total": total,
+			"cur":   curPage,
+			"prev":  prev,
+			"next":  next,
+		},
+	})
+}
+
+// POST /view/:y/:m/:d/:h/:filename/update - обновление изображения (публичность и теги)
+func (s *Server) handlerUpdateImage(c *gin.Context) {
+	user := s.getUser(c)
+	if user.ID == 0 {
+		c.Redirect(http.StatusSeeOther, "/sso/auth")
+		return
+	}
+
+	year := c.Param("y")
+	month := c.Param("m")
+	day := c.Param("d")
+	hour := c.Param("h")
+	filename := c.Param("filename")
+	path := path.Join(year, month, day, hour, filename)
+
+	// Получаем изображение, чтобы узнать его ID и проверить владельца
+	img, err := s.pic.GetImg(c.Request.Context(), path)
+	if err != nil {
+		s.log.Error("failed get image for update", zap.Error(err))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("изображение не найдено")))
+		return
+	}
+	if img.UserID != user.ID {
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("нет прав на редактирование")))
+		return
+	}
+
+	// Парсим форму
+	isPublic := c.PostForm("is_public") == "on"
+	tags := c.PostForm("tags")
+	var isPublicPtr *bool
+	var tagsPtr *string
+	// Обновляем только если переданы значения (можно передать пустые, но мы будем обновлять всегда)
+	isPublicPtr = &isPublic
+	tagsPtr = &tags
+
+	err = s.pic.UpdateImage(c.Request.Context(), user.ID, img.ID, isPublicPtr, tagsPtr)
+	if err != nil {
+		s.log.Error("failed update image", zap.Error(err))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("не удалось обновить изображение")))
+		return
+	}
+
+	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?info=%s", path, url.QueryEscape("изображение обновлено")))
+}
+
+// POST /view/:y/:m/:d/:h/:filename/delete - удаление изображения
+func (s *Server) handlerDeleteImage(c *gin.Context) {
+	user := s.getUser(c)
+	if user.ID == 0 {
+		c.Redirect(http.StatusSeeOther, "/sso/auth")
+		return
+	}
+
+	year := c.Param("y")
+	month := c.Param("m")
+	day := c.Param("d")
+	hour := c.Param("h")
+	filename := c.Param("filename")
+	path := path.Join(year, month, day, hour, filename)
+
+	img, err := s.pic.GetImg(c.Request.Context(), path)
+	if err != nil {
+		s.log.Error("failed get image for delete", zap.Error(err))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("изображение не найдено")))
+		return
+	}
+	if img.UserID != user.ID {
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("нет прав на удаление")))
+		return
+	}
+
+	err = s.pic.DeleteImage(c.Request.Context(), user.ID, img.ID)
+	if err != nil {
+		s.log.Error("failed delete image", zap.Error(err))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("не удалось удалить изображение")))
+		return
+	}
+
+	// После удаления перенаправляем на список постов пользователя
+	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/posts?info=%s", url.QueryEscape("изображение удалено")))
+}

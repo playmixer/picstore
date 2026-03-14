@@ -88,6 +88,7 @@
     <div class="view-info">
         <p><strong>ID:</strong> {{ .img.ID }}</p>
         <p><strong>Путь:</strong> {{ .img.Path }}</p>
+        <p><strong>Публичное:</strong> {{ if .img.IsPublic }}Да{{ else }}Нет{{ end }}</p>
         {{ if .img.Tags }}
         <p><strong>Теги:</strong></p>
         <div class="tags">
@@ -95,6 +96,27 @@
                 <span class="tag">{{ . }}</span>
             {{ end }}
         </div>
+        {{ end }}
+
+        {{ if and .user .user.ID (eq .user.ID .img.UserID) }}
+        <hr style="margin: 20px 0;">
+        <h3>Управление изображением</h3>
+        <form method="POST" action="/view/{{ .img.Path }}/update" style="margin-bottom: 20px;">
+            <div style="margin-bottom: 10px;">
+                <label>
+                    <input type="checkbox" name="is_public" {{ if .img.IsPublic }}checked{{ end }}>
+                    Публичное
+                </label>
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label for="tags">Теги (через пробел):</label>
+                <input type="text" id="tags" name="tags" value="{{ .img.Tags }}" style="width: 100%; padding: 5px;">
+            </div>
+            <button type="submit" style="padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 4px;">Сохранить изменения</button>
+        </form>
+        <form method="POST" action="/view/{{ .img.Path }}/delete" onsubmit="return confirm('Вы уверены, что хотите удалить это изображение?');">
+            <button type="submit" style="padding: 8px 16px; background-color: #f44336; color: white; border: none; border-radius: 4px;">Удалить изображение</button>
+        </form>
         {{ end }}
     </div>
 </div>

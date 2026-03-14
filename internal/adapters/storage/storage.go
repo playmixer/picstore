@@ -30,6 +30,7 @@ type Storage interface {
 	DelImage(ctx context.Context, userID uint, imageID uint) error
 	GetImage(ctx context.Context, path string) (*models.Image, error)
 	GetImages(ctx context.Context) ([]*models.Image, error)
+	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 
 	Close() error
 }

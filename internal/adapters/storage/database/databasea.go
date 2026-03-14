@@ -235,13 +235,6 @@ func (s *Storage) NewImage(ctx context.Context, userID uint, path string, isPubl
 	return img, nil
 }
 
-// TODO
-func (s *Storage) DelImage(ctx context.Context, userID uint, imageID uint) error {
-
-	return nil
-	// return errors.New("failed")
-}
-
 func (s *Storage) GetImage(ctx context.Context, path string) (*models.Image, error) {
 	i := &models.Image{}
 	err := s.db.WithContext(ctx).Preload("TagsRel").Where("path = ?", path).First(i).Error
@@ -263,4 +256,95 @@ func (s *Storage) GetImages(ctx context.Context) ([]*models.Image, error) {
 	}
 
 	return images, nil
+}
+
+// DelImage удаляет изображение по ID, принадлежащее указанному пользователю.
+func (s *Storage) DelImage(ctx context.Context, userID uint, imageID uint) error {
+	// Сначала проверим, существует ли изображение и принадлежит ли пользователю
+	img := &models.Image{}
+	err := s.db.WithContext(ctx).Where("id = ? AND user_id = ?", imageID, userID).First(img).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return apperror.ErrNotFoundData
+		}
+		return fmt.Errorf("failed find image: %w", err)
+	}
+	// Удаляем связи с тегами
+	if err := s.db.WithContext(ctx).Where("image_id = ?", imageID).Delete(&models.ImageTag{}).Error; err != nil {
+		return fmt.Errorf("failed delete image tags: %w", err)
+	}
+	// Удаляем само изображение
+	if err := s.db.WithContext(ctx).Delete(img).Error; err != nil {
+		return fmt.Errorf("failed delete image: %w", err)
+	}
+	// TODO: удалить физический файл
+	return nil
+}
+
+// UpdateImage обновляет публичность и/или теги изображения.
+// Если isPublic == nil, поле не обновляется. Если tags == nil, теги не меняются.
+func (s *Storage) UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error {
+	// Проверяем существование изображения и принадлежность пользователю
+	img := &models.Image{}
+	err := s.db.WithContext(ctx).Where("id = ? AND user_id = ?", imageID, userID).First(img).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return apperror.ErrNotFoundData
+		}
+		return fmt.Errorf("failed find image: %w", err)
+	}
+
+	// Обновляем IsPublic, если передано
+	if isPublic != nil {
+		img.IsPublic = *isPublic
+	}
+	// Обновляем теги, если передано
+	if tags != nil {
+		img.Tags = *tags
+		// Удаляем старые связи с тегами
+		if err := s.db.WithContext(ctx).Where("image_id = ?", imageID).Delete(&models.ImageTag{}).Error; err != nil {
+			return fmt.Errorf("failed delete old image tags: %w", err)
+		}
+		// Создаём новые связи (аналогично NewImage)
+		if *tags != "" {
+			tagNames := strings.Fields(*tags)
+			validTagRegex := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+			for _, tagName := range tagNames {
+				tagName = strings.TrimSpace(tagName)
+				if tagName == "" {
+					continue
+				}
+				if !validTagRegex.MatchString(tagName) {
+					continue
+				}
+				tag := &models.Tag{}
+				result := s.db.WithContext(ctx).Where("name = ?", tagName).First(tag)
+				if result.Error != nil && errors.Is(result.Error, gorm.ErrRecordNotFound) {
+					tag.Name = tagName
+					if err := s.db.WithContext(ctx).Create(tag).Error; err != nil {
+						return fmt.Errorf("failed create tag: %w", err)
+					}
+				} else if result.Error != nil {
+					return fmt.Errorf("failed find tag: %w", result.Error)
+				}
+				imageTag := &models.ImageTag{
+					ImageID: img.ID,
+					TagID:   tag.ID,
+				}
+				if err := s.db.WithContext(ctx).Create(imageTag).Error; err != nil {
+					// Игнорируем ошибку дублирования связи
+					var pgErr *pgconn.PgError
+					if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+						continue
+					}
+					return fmt.Errorf("failed create image-tag link: %w", err)
+				}
+			}
+		}
+	}
+	// Сохраняем изменения в изображении
+	if err := s.db.WithContext(ctx).Save(img).Error; err != nil {
+		return fmt.Errorf("failed update image: %w", err)
+	}
+	return nil
 }

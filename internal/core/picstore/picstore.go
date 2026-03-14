@@ -39,6 +39,7 @@ type store interface {
 	DelImage(ctx context.Context, userID uint, imageID uint) error
 	GetImage(ctx context.Context, path string) (*models.Image, error)
 	GetImages(ctx context.Context) ([]*models.Image, error)
+	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 }
 
 type self interface {
@@ -46,6 +47,9 @@ type self interface {
 	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string) (*PicImage, error)
 	GetImg(ctx context.Context, path string) (*PicImage, error)
 	GetPosts(ctx context.Context) ([]*PicImage, error)
+	GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error)
+	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
+	DeleteImage(ctx context.Context, userID uint, imageID uint) error
 }
 
 type PicStore struct {
@@ -239,4 +243,55 @@ func (p *PicStore) GetPosts(ctx context.Context) ([]*PicImage, error) {
 	p.locker[nsPostsPublic].Unlock()
 
 	return data, nil
+}
+
+func (p *PicStore) GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error) {
+	// Используем getImages с фильтром по userID
+	return p.getImages(ctx, func(pi *PicImage) bool { return pi.UserID == userID })
+}
+
+// UpdateImage обновляет публичность и/или теги изображения, принадлежащего пользователю.
+// После обновления инвалидирует кэш изображений.
+func (p *PicStore) UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error {
+	err := p.store.UpdateImage(ctx, userID, imageID, isPublic, tags)
+	if err != nil {
+		return fmt.Errorf("failed update image: %w", err)
+	}
+	// Инвалидируем кэш изображений
+	p.locker[nsImagesAll].Lock()
+	if err := p.cache.SetH(ctx, nsImagesAll, &models.Images{}, time.Millisecond); err != nil {
+		p.log.Error("failed invalidate cache", zap.Error(err))
+	}
+	p.locker[nsImagesAll].Unlock()
+	// Также инвалидируем кэш публичных постов, если изменилась публичность
+	if isPublic != nil {
+		p.locker[nsPostsPublic].Lock()
+		if err := p.cache.SetH(ctx, nsPostsPublic, &picImages{}, time.Millisecond); err != nil {
+			p.log.Error("failed invalidate posts cache", zap.Error(err))
+		}
+		p.locker[nsPostsPublic].Unlock()
+	}
+	return nil
+}
+
+// DeleteImage удаляет изображение, принадлежащее пользователю.
+// После удаления инвалидирует кэш изображений.
+func (p *PicStore) DeleteImage(ctx context.Context, userID uint, imageID uint) error {
+	err := p.store.DelImage(ctx, userID, imageID)
+	if err != nil {
+		return fmt.Errorf("failed delete image: %w", err)
+	}
+	// Инвалидируем кэш изображений
+	p.locker[nsImagesAll].Lock()
+	if err := p.cache.SetH(ctx, nsImagesAll, &models.Images{}, time.Millisecond); err != nil {
+		p.log.Error("failed invalidate cache", zap.Error(err))
+	}
+	p.locker[nsImagesAll].Unlock()
+	// Инвалидируем кэш публичных постов (на всякий случай)
+	p.locker[nsPostsPublic].Lock()
+	if err := p.cache.SetH(ctx, nsPostsPublic, &picImages{}, time.Millisecond); err != nil {
+		p.log.Error("failed invalidate posts cache", zap.Error(err))
+	}
+	p.locker[nsPostsPublic].Unlock()
+	return nil
 }
