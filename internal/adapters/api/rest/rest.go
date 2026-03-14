@@ -35,6 +35,8 @@ var (
 type PicStore interface {
 	UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*picstore.PicImage, error)
 	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string, encryptionKey string) (*picstore.PicImage, error)
+	UploadMultipleImgFiles(ctx context.Context, userID uint, files []*multipart.FileHeader, isPublic bool, tags string, encryptionKey string) ([]*picstore.PicImage, error)
+	UploadMultipleImgURLs(ctx context.Context, userID uint, urls []string, isPublic bool, tags string, encryptionKey string) ([]*picstore.PicImage, error)
 	GetImg(ctx context.Context, path string) (*picstore.PicImage, error)
 	DecryptImage(ctx context.Context, path string, key string) ([]byte, error)
 

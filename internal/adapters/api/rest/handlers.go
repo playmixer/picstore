@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"path"
@@ -142,29 +143,81 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 	)
 
 	if formType == "file" {
-		file, err := c.FormFile("file")
+		// Попробуем получить несколько файлов
+		form, err := c.MultipartForm()
 		if err != nil {
-			s.log.Debug("failed getting form file", zap.Error(err))
-			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("ошибка получения файла")))
+			s.log.Debug("failed getting multipart form", zap.Error(err))
+			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("ошибка получения формы")))
 			return
 		}
-		_, err = s.pic.UploadImgFile(c.Request.Context(), user.ID, file, isPublic, tags, encryptionKey)
-		if err != nil {
-			s.log.Error("failed save file", zap.Error(err))
-			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не удалось сохранить файл")))
-			return
+		files := form.File["files"]
+		if len(files) == 0 {
+			// fallback на одиночный файл (для обратной совместимости)
+			file, err := c.FormFile("file")
+			if err != nil {
+				s.log.Debug("failed getting form file", zap.Error(err))
+				c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("ошибка получения файла")))
+				return
+			}
+			files = []*multipart.FileHeader{file}
+		}
+		if len(files) == 1 {
+			_, err := s.pic.UploadImgFile(c.Request.Context(), user.ID, files[0], isPublic, tags, encryptionKey)
+			if err != nil {
+				s.log.Error("failed save file", zap.Error(err))
+				c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не удалось сохранить файл")))
+				return
+			}
+		} else {
+			_, err := s.pic.UploadMultipleImgFiles(c.Request.Context(), user.ID, files, isPublic, tags, encryptionKey)
+			if err != nil {
+				s.log.Error("failed save multiple files", zap.Error(err))
+				// В ошибке может быть информация о частичной загрузке, но мы просто редиректим с ошибкой
+				c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не удалось сохранить некоторые файлы")))
+				return
+			}
 		}
 	} else {
-		link := c.PostForm("url")
-		_, err := s.pic.UploadImgURL(c.Request.Context(), user.ID, link, isPublic, tags, encryptionKey)
-		if err != nil {
-			s.log.Error("failed save file from url", zap.String("url", link), zap.Error(err))
-			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не удалось сохранить файл")))
-			return
+		// Обработка URL
+		urlsText := c.PostForm("urls")
+		var urls []string
+		if urlsText != "" {
+			// Разделяем по переносу строки, удаляем пустые
+			lines := strings.Split(urlsText, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					urls = append(urls, line)
+				}
+			}
+		}
+		if len(urls) == 0 {
+			// fallback на одиночный URL (для обратной совместимости)
+			link := c.PostForm("url")
+			if link == "" {
+				c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не указан URL")))
+				return
+			}
+			urls = []string{link}
+		}
+		if len(urls) == 1 {
+			_, err := s.pic.UploadImgURL(c.Request.Context(), user.ID, urls[0], isPublic, tags, encryptionKey)
+			if err != nil {
+				s.log.Error("failed save file from url", zap.String("url", urls[0]), zap.Error(err))
+				c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не удалось сохранить файл")))
+				return
+			}
+		} else {
+			_, err := s.pic.UploadMultipleImgURLs(c.Request.Context(), user.ID, urls, isPublic, tags, encryptionKey)
+			if err != nil {
+				s.log.Error("failed save multiple urls", zap.Error(err))
+				c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не удалось сохранить некоторые URL")))
+				return
+			}
 		}
 	}
 
-	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?info=%s", url.QueryEscape("файл загружен")))
+	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?info=%s", url.QueryEscape("файл(ы) загружены")))
 }
 
 func (s *Server) handlerPosts(c *gin.Context) {

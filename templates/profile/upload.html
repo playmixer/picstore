@@ -39,6 +39,22 @@
         padding: 10px;
         font-size: 16px;
     }
+    .upload-form textarea {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 10px;
+        font-size: 16px;
+        font-family: inherit;
+        resize: vertical;
+        min-height: 120px;
+    }
+    .upload-form textarea:focus {
+        outline: none;
+        border-color: #4a90e2;
+        box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+    }
     .upload-form input[type="checkbox"] {
         margin-right: 10px;
     }
@@ -162,8 +178,8 @@
         <input type="hidden" name="type" value="file">
         <div class="upload-form">
             <div id="input_file">
-                <label for="file">Выберите файл</label>
-                <input type="file" name="file" id="file" required>
+                <label for="files">Выберите файл (можно несколько)</label>
+                <input type="file" name="files" id="files" multiple required>
             </div>
             <div class="form-input">
                 <label for="is_public_file">Публичная</label>
@@ -190,8 +206,8 @@
         <input type="hidden" name="type" value="url">
         <div class="upload-form">
             <div id="input_url">
-                <label for="url">Ссылка</label>
-                <input type="text" name="url" id="url" required>
+                <label for="urls">Ссылки (каждая на новой строке)</label>
+                <textarea name="urls" id="urls" rows="5" placeholder="Введите каждый URL на новой строке" required></textarea>
             </div>
 
             <div class="form-input">

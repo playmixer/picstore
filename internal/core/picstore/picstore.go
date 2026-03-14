@@ -46,6 +46,8 @@ type store interface {
 type self interface {
 	UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*PicImage, error)
 	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string, encryptionKey string) (*PicImage, error)
+	UploadMultipleImgFiles(ctx context.Context, userID uint, files []*multipart.FileHeader, isPublic bool, tags string, encryptionKey string) ([]*PicImage, error)
+	UploadMultipleImgURLs(ctx context.Context, userID uint, urls []string, isPublic bool, tags string, encryptionKey string) ([]*PicImage, error)
 	GetImg(ctx context.Context, path string) (*PicImage, error)
 	DecryptImage(ctx context.Context, path string, key string) ([]byte, error)
 	GetPosts(ctx context.Context) ([]*PicImage, error)
@@ -110,6 +112,41 @@ func (p *PicStore) UploadImgURL(ctx context.Context, userID uint, url string, is
 
 	extension := filepath.Ext(url)
 	return p.storeImg(ctx, userID, isPublic, tags, encryptionKey, data, extension)
+}
+
+func (p *PicStore) UploadMultipleImgFiles(ctx context.Context, userID uint, files []*multipart.FileHeader, isPublic bool, tags string, encryptionKey string) ([]*PicImage, error) {
+	results := make([]*PicImage, 0, len(files))
+	var errs []error
+	for _, f := range files {
+		img, err := p.UploadImgFile(ctx, userID, f, isPublic, tags, encryptionKey)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("file %s: %w", f.Filename, err))
+			continue
+		}
+		results = append(results, img)
+	}
+	if len(errs) > 0 {
+		// Возвращаем результаты и объединённую ошибку
+		return results, fmt.Errorf("некоторые файлы не загружены: %v", errs)
+	}
+	return results, nil
+}
+
+func (p *PicStore) UploadMultipleImgURLs(ctx context.Context, userID uint, urls []string, isPublic bool, tags string, encryptionKey string) ([]*PicImage, error) {
+	results := make([]*PicImage, 0, len(urls))
+	var errs []error
+	for _, url := range urls {
+		img, err := p.UploadImgURL(ctx, userID, url, isPublic, tags, encryptionKey)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("URL %s: %w", url, err))
+			continue
+		}
+		results = append(results, img)
+	}
+	if len(errs) > 0 {
+		return results, fmt.Errorf("некоторые URL не загружены: %v", errs)
+	}
+	return results, nil
 }
 
 func tagsFromImage(img *models.Image) string {
