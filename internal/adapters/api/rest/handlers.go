@@ -167,19 +167,6 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 
 func (s *Server) handlerPosts(c *gin.Context) {
 	tagsParam := strings.TrimSpace(c.Query("tags"))
-	var posts []*picstore.PicImage
-	var err error
-	if tagsParam == "" {
-		posts, err = s.pic.GetPosts(c.Request.Context())
-	} else {
-		posts, err = s.pic.GetPostsWithTags(c.Request.Context(), tagsParam)
-	}
-	if err != nil {
-		s.log.Error("failed get posts", zap.Error(err))
-		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/posts?error=%s", url.QueryEscape("не удалось получить посты")))
-		return
-	}
-
 	page := c.Query("page")
 	if page == "" {
 		page = "1"
@@ -189,25 +176,49 @@ func (s *Server) handlerPosts(c *gin.Context) {
 		curPage = 1
 	}
 
-	start, end, total := pagify(len(posts), pageSize, curPage)
-	// Корректируем curPage на случай, если pagify изменила его (например, если curPage > total)
-	// pagify уже скорректировала curPage внутри, но мы используем переданный curPage для prev/next
-	// Вычислим актуальный curPage на основе start (start = (curPage-1)*pageSize)
-	// Но проще использовать curPage, который мы передали.
+	// Получаем страницу постов через GetPostsPage
+	pagePosts, err := s.pic.GetPostsPage(c.Request.Context(), curPage, pageSize, tagsParam)
+	if err != nil {
+		s.log.Error("failed get posts page", zap.Error(err))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/posts?error=%s", url.QueryEscape("не удалось получить посты")))
+		return
+	}
+
+	// Для пагинации нужно общее количество постов (с фильтром по тегам)
+	var allPosts []*picstore.PicImage
+	if tagsParam == "" {
+		allPosts, err = s.pic.GetPosts(c.Request.Context())
+	} else {
+		allPosts, err = s.pic.GetPostsWithTags(c.Request.Context(), tagsParam)
+	}
+	if err != nil {
+		s.log.Error("failed get total posts", zap.Error(err))
+		// но мы уже имеем pagePosts, можно продолжить с нулевым total
+		allPosts = []*picstore.PicImage{}
+	}
+	total := len(allPosts)
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	// Корректируем curPage, если он превышает totalPages
+	if curPage > totalPages {
+		curPage = totalPages
+	}
 	prev := curPage - 1
 	if prev < 1 {
 		prev = 0
 	}
 	next := curPage + 1
-	if next > total {
+	if next > totalPages {
 		next = 0
 	}
 	c.HTML(http.StatusOK, "posts.html", gin.H{
-		"posts": posts[start:end],
+		"posts": pagePosts,
 		"user":  s.getUser(c),
 		"tags":  tagsParam,
 		"pagination": gin.H{
-			"total": total,
+			"total": totalPages,
 			"cur":   curPage,
 			"prev":  prev,
 			"next":  next,

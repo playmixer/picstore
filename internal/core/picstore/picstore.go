@@ -48,6 +48,7 @@ type self interface {
 	GetImg(ctx context.Context, path string) (*PicImage, error)
 	GetPosts(ctx context.Context) ([]*PicImage, error)
 	GetPostsWithTags(ctx context.Context, tags string) ([]*PicImage, error)
+	GetPostsPage(ctx context.Context, page, pageSize int, tags string) ([]*PicImage, error)
 	GetTagsWithCount(ctx context.Context) (map[string]int, error)
 	GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
@@ -58,6 +59,7 @@ type PicStore struct {
 	store       store
 	log         *logger.Logger
 	cache       cache
+	cacheTTL    time.Duration
 	picturePath string
 	locker      map[string]*sync.Mutex
 }
@@ -71,6 +73,7 @@ func New(cfg Config, log *logger.Logger, store store, cache cache) (*PicStore, e
 		store:       store,
 		log:         log,
 		cache:       cache,
+		cacheTTL:    cfg.CacheTTL,
 		picturePath: cfg.PicPath,
 		locker: map[string]*sync.Mutex{
 			nsImagesAll:   &sync.Mutex{},
@@ -175,6 +178,9 @@ func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tag
 		return nil, fmt.Errorf("failed save file to store: %w", err)
 	}
 
+	// Инвалидируем кэш, так как добавили новое изображение
+	p.invalidateCache(ctx)
+
 	return &PicImage{
 		ID:        img.ID,
 		Filename:  newFilename,
@@ -213,7 +219,7 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool) (
 		if err != nil {
 			return []*PicImage{}, fmt.Errorf("failed gettings images: %w", err)
 		}
-		if err := p.cache.SetH(ctx, nsImagesAll, &data, time.Minute*5); err != nil {
+		if err := p.cache.SetH(ctx, nsImagesAll, &data, p.cacheTTL); err != nil {
 			p.log.Error("failed cacheing images", zap.Error(err))
 		}
 	}
@@ -257,7 +263,7 @@ func (p *PicStore) GetPosts(ctx context.Context) ([]*PicImage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed getting public posts: %w", err)
 		}
-		if err := p.cache.SetH(ctx, nsPostsPublic, &data, time.Minute*5); err != nil {
+		if err := p.cache.SetH(ctx, nsPostsPublic, &data, p.cacheTTL); err != nil {
 			p.log.Error("failed cacheing posts", zap.Error(err))
 		}
 	}
@@ -298,6 +304,57 @@ func (p *PicStore) GetPostsWithTags(ctx context.Context, tags string) ([]*PicIma
 	return filtered, nil
 }
 
+// GetPostsPage возвращает страницу публичных постов с возможной фильтрацией по тегам.
+// page - номер страницы (начиная с 1), pageSize - размер страницы.
+func (p *PicStore) GetPostsPage(ctx context.Context, page, pageSize int, tags string) ([]*PicImage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+
+	// Формируем ключ кэша для страницы
+	key := fmt.Sprintf("posts:page:%d:size:%d:tags:%s", page, pageSize, tags)
+	var data picImages
+
+	// Пытаемся получить из кэша
+	if err := p.cache.GetH(ctx, key, &data); err == nil {
+		return data, nil
+	}
+
+	// Получаем все посты (с фильтром по тегам если нужно)
+	var allPosts []*PicImage
+	var err error
+	if tags == "" {
+		allPosts, err = p.GetPosts(ctx)
+	} else {
+		allPosts, err = p.GetPostsWithTags(ctx, tags)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Применяем пагинацию
+	start := (page - 1) * pageSize
+	if start >= len(allPosts) {
+		return []*PicImage{}, nil
+	}
+	end := start + pageSize
+	if end > len(allPosts) {
+		end = len(allPosts)
+	}
+	pagePosts := allPosts[start:end]
+
+	// Преобразуем в picImages для кэширования
+	cacheData := picImages(pagePosts)
+	// Кэшируем страницу с тем же TTL, что и общий кэш
+	if err := p.cache.SetH(ctx, key, &cacheData, p.cacheTTL); err != nil {
+		p.log.Error("failed cacheing page", zap.Error(err))
+	}
+	return pagePosts, nil
+}
+
 // GetTagsWithCount возвращает карту тегов с количеством изображений, содержащих каждый тег.
 // Возвращает map[tag]count.
 func (p *PicStore) GetTagsWithCount(ctx context.Context) (map[string]int, error) {
@@ -320,6 +377,21 @@ func (p *PicStore) GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, 
 	return p.getImages(ctx, func(pi *PicImage) bool { return pi.UserID == userID })
 }
 
+// invalidateCache инвалидирует кэши изображений и публичных постов.
+func (p *PicStore) invalidateCache(ctx context.Context) {
+	p.locker[nsImagesAll].Lock()
+	if err := p.cache.SetH(ctx, nsImagesAll, &models.Images{}, time.Millisecond); err != nil {
+		p.log.Error("failed invalidate cache", zap.Error(err))
+	}
+	p.locker[nsImagesAll].Unlock()
+
+	p.locker[nsPostsPublic].Lock()
+	if err := p.cache.SetH(ctx, nsPostsPublic, &picImages{}, time.Millisecond); err != nil {
+		p.log.Error("failed invalidate posts cache", zap.Error(err))
+	}
+	p.locker[nsPostsPublic].Unlock()
+}
+
 // UpdateImage обновляет публичность и/или теги изображения, принадлежащего пользователю.
 // После обновления инвалидирует кэш изображений.
 func (p *PicStore) UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error {
@@ -327,20 +399,10 @@ func (p *PicStore) UpdateImage(ctx context.Context, userID uint, imageID uint, i
 	if err != nil {
 		return fmt.Errorf("failed update image: %w", err)
 	}
-	// Инвалидируем кэш изображений
-	p.locker[nsImagesAll].Lock()
-	if err := p.cache.SetH(ctx, nsImagesAll, &models.Images{}, time.Millisecond); err != nil {
-		p.log.Error("failed invalidate cache", zap.Error(err))
-	}
-	p.locker[nsImagesAll].Unlock()
-	// Также инвалидируем кэш публичных постов, если изменилась публичность
-	if isPublic != nil {
-		p.locker[nsPostsPublic].Lock()
-		if err := p.cache.SetH(ctx, nsPostsPublic, &picImages{}, time.Millisecond); err != nil {
-			p.log.Error("failed invalidate posts cache", zap.Error(err))
-		}
-		p.locker[nsPostsPublic].Unlock()
-	}
+	// Инвалидируем кэш изображений и публичных постов
+	p.invalidateCache(ctx)
+	// Если изменилась публичность, дополнительно инвалидируем кэш публичных постов
+	// (уже сделано в invalidateCache, но можно оставить для ясности)
 	return nil
 }
 
@@ -351,17 +413,7 @@ func (p *PicStore) DeleteImage(ctx context.Context, userID uint, imageID uint) e
 	if err != nil {
 		return fmt.Errorf("failed delete image: %w", err)
 	}
-	// Инвалидируем кэш изображений
-	p.locker[nsImagesAll].Lock()
-	if err := p.cache.SetH(ctx, nsImagesAll, &models.Images{}, time.Millisecond); err != nil {
-		p.log.Error("failed invalidate cache", zap.Error(err))
-	}
-	p.locker[nsImagesAll].Unlock()
-	// Инвалидируем кэш публичных постов (на всякий случай)
-	p.locker[nsPostsPublic].Lock()
-	if err := p.cache.SetH(ctx, nsPostsPublic, &picImages{}, time.Millisecond); err != nil {
-		p.log.Error("failed invalidate posts cache", zap.Error(err))
-	}
-	p.locker[nsPostsPublic].Unlock()
+	// Инвалидируем кэш изображений и публичных постов
+	p.invalidateCache(ctx)
 	return nil
 }
