@@ -175,16 +175,32 @@ func (s *Server) handlerPosts(c *gin.Context) {
 	if page == "" {
 		page = "1"
 	}
+	curPage := atoi(page)
+	if curPage < 1 {
+		curPage = 1
+	}
 
-	start, end, total := pagify(len(posts), pageSize, atoi(page))
+	start, end, total := pagify(len(posts), pageSize, curPage)
+	// Корректируем curPage на случай, если pagify изменила его (например, если curPage > total)
+	// pagify уже скорректировала curPage внутри, но мы используем переданный curPage для prev/next
+	// Вычислим актуальный curPage на основе start (start = (curPage-1)*pageSize)
+	// Но проще использовать curPage, который мы передали.
+	prev := curPage - 1
+	if prev < 1 {
+		prev = 0
+	}
+	next := curPage + 1
+	if next > total {
+		next = 0
+	}
 	c.HTML(http.StatusOK, "posts.html", gin.H{
 		"posts": posts[start:end],
 		"user":  s.getUser(c),
 		"pagination": gin.H{
 			"total": total,
-			"cur":   atoi(page),
-			"prev":  atoi(page) - 1,
-			"next":  atoi(page) + 1,
+			"cur":   curPage,
+			"prev":  prev,
+			"next":  next,
 		},
 	})
 }

@@ -1,4 +1,5 @@
 {{ define "modules/pagination.html" }}
+{{ if gt .pagination.total 0 }}
 <style>
 .pagination {
     display: flex;
@@ -19,15 +20,16 @@
 }
 </style>
 <div class="pagination">
-    {{ if (beforeI .pagination.prev 0) }}
+    {{ if gt .pagination.prev 0 }}
     <a href="?page={{ .pagination.prev }}">&laquo; Предыдущая</a>
     {{ end }}
     {{ $cur := .pagination.cur }}
     {{ range .pagination.total|genNumbers }}
     <a href="?page={{ . }}" class="{{ if (eq . $cur) }}active{{ end }}">{{ . }}</a>
     {{ end }}
-    {{ if (afterI .pagination.cur .pagination.total) }}
+    {{ if gt .pagination.next 0 }}
     <a href="?page={{ .pagination.next }}">Следующая &raquo;</a>
     {{ end }}
 </div>
+{{ end }}
 {{ end }}

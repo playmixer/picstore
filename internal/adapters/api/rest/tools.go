@@ -78,9 +78,16 @@ func (s *Server) getUser(c *gin.Context) *models.User {
 }
 
 func pagify(totalRows int, pageSize int, curPage int) (rowStart, rowEnd int, totalPage int) {
+	// Корректируем curPage, если он меньше 1
+	if curPage < 1 {
+		curPage = 1
+	}
 	rowStart = (curPage - 1) * pageSize
 	if rowStart > totalRows {
 		rowStart = totalRows
+	}
+	if rowStart < 0 {
+		rowStart = 0
 	}
 	rowEnd = curPage * pageSize
 	if rowEnd > totalRows {
@@ -89,6 +96,10 @@ func pagify(totalRows int, pageSize int, curPage int) (rowStart, rowEnd int, tot
 	totalPage = totalRows / pageSize
 	if totalRows%pageSize > 0 {
 		totalPage += 1
+	}
+	// Если totalRows == 0, то totalPage должен быть 0 (нет страниц)
+	if totalPage < 0 {
+		totalPage = 0
 	}
 	return
 }
