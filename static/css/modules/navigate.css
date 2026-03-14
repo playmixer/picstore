@@ -1,27 +1,71 @@
 /* Стили для навигации и кнопок */
 nav {
     background-color: #6666ff;
-    overflow: hidden;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 10px;
 }
 nav a {
-    float: left;
-    display: block;
     color: white;
     text-align: center;
     padding: 14px 16px;
     text-decoration: none;
     font-size: 18px;
+    white-space: nowrap;
+}
+nav a:hover {
+    background-color: rgba(255, 255, 255, 0.2);
 }
 .login-button, .logout-button {
-    float: right;
+    margin-left: auto;
     padding: 14px 16px;
-    margin-right: 20px;
     font-size: 18px;
 }
 
 .user-info {
-    float: right;
     padding: 14px 16px;
-    margin-right: 20px;
     font-size: 18px;
+    color: white;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    margin-left: 10px;
+}
+
+/* Мобильная адаптация */
+@media (max-width: 768px) {
+    nav {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 0;
+    }
+    nav a {
+        padding: 12px 16px;
+        font-size: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        text-align: left;
+    }
+    .login-button, .logout-button, .user-info {
+        margin-left: 0;
+        margin-right: 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .user-info {
+        order: -1;
+        background-color: rgba(255, 255, 255, 0.15);
+        font-size: 14px;
+        padding: 10px 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    nav a {
+        font-size: 14px;
+        padding: 10px 12px;
+    }
+    .login-button, .logout-button, .user-info {
+        font-size: 14px;
+        padding: 10px 12px;
+    }
 }

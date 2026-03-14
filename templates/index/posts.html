@@ -121,6 +121,7 @@
         .container {
             grid-template-columns: 1fr;
             gap: 15px;
+            padding: 15px;
         }
         .search-form {
             margin: 20px;
@@ -133,6 +134,41 @@
         }
         .search-button {
             width: 100%;
+        }
+        .autocomplete-suggestions {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+    }
+    @media (max-width: 480px) {
+        .container {
+            padding: 10px;
+            gap: 10px;
+        }
+        .image-box {
+            max-height: 300px;
+        }
+        .search-form {
+            margin: 15px 10px;
+            padding: 0;
+        }
+        .search-input {
+            padding: 10px 14px;
+            font-size: 14px;
+        }
+        .search-button {
+            padding: 10px 20px;
+            font-size: 14px;
+        }
+        .encrypted-placeholder {
+            padding: 15px;
+        }
+        .encrypted-placeholder div {
+            font-size: 36px;
+        }
+        .encrypted-placeholder div:last-child {
+            font-size: 12px;
         }
     }
 </style>

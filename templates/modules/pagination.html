@@ -40,6 +40,28 @@
     pointer-events: none;
     cursor: default;
 }
+@media (max-width: 768px) {
+    .pagination {
+        gap: 6px;
+        margin-top: 30px;
+        margin-bottom: 20px;
+    }
+    .pagination a {
+        padding: 8px 12px;
+        min-width: 36px;
+        font-size: 0.9rem;
+    }
+}
+@media (max-width: 480px) {
+    .pagination {
+        gap: 4px;
+    }
+    .pagination a {
+        padding: 6px 10px;
+        min-width: 32px;
+        font-size: 0.85rem;
+    }
+}
 </style>
 {{ $tags := .tags }}
 <div class="pagination">
