@@ -41,18 +41,19 @@
     cursor: default;
 }
 </style>
+{{ $tags := .tags }}
 <div class="pagination">
     {{ if gt .pagination.prev 0 }}
-    <a href="?page={{ .pagination.prev }}">&laquo; Предыдущая</a>
+    <a href="?page={{ .pagination.prev }}{{if $tags}}&tags={{urlquery $tags}}{{end}}">&laquo; Предыдущая</a>
     {{ else }}
     <a class="disabled">&laquo; Предыдущая</a>
     {{ end }}
     {{ $cur := .pagination.cur }}
     {{ range .pagination.total|genNumbers }}
-    <a href="?page={{ . }}" class="{{ if (eq . $cur) }}active{{ end }}">{{ . }}</a>
+    <a href="?page={{ . }}{{if $tags}}&tags={{urlquery $tags}}{{end}}" class="{{ if (eq . $cur) }}active{{ end }}">{{ . }}</a>
     {{ end }}
     {{ if gt .pagination.next 0 }}
-    <a href="?page={{ .pagination.next }}">Следующая &raquo;</a>
+    <a href="?page={{ .pagination.next }}{{if $tags}}&tags={{urlquery $tags}}{{end}}">Следующая &raquo;</a>
     {{ else }}
     <a class="disabled">Следующая &raquo;</a>
     {{ end }}
