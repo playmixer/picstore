@@ -219,12 +219,18 @@ func (s *Server) SetupRouter() *gin.Engine {
 	auth.Use(s.authMiddleware())
 	{
 		auth.GET("", s.handlerProfile)
-		auth.GET("/upload", s.handlerUpload)
-		auth.POST("/upload", s.handlerUploadPost)
-		auth.GET("/posts", s.handlerUserPosts)
 		auth.GET("/view/:y/:m/:d/:h/:filename", s.handlerUserView)
-		auth.POST("/view/:y/:m/:d/:h/:filename/update", s.handlerUpdateImage)
-		auth.POST("/view/:y/:m/:d/:h/:filename/delete", s.handlerDeleteImage)
+
+		// Маршруты только для publisher
+		publisher := auth.Group("")
+		publisher.Use(s.PublisherMiddleware())
+		{
+			publisher.GET("/upload", s.handlerUpload)
+			publisher.POST("/upload", s.handlerUploadPost)
+			publisher.GET("/posts", s.handlerUserPosts)
+			publisher.POST("/view/:y/:m/:d/:h/:filename/update", s.handlerUpdateImage)
+			publisher.POST("/view/:y/:m/:d/:h/:filename/delete", s.handlerDeleteImage)
+		}
 	}
 
 	return r

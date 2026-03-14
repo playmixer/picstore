@@ -101,3 +101,21 @@ func (s *Server) middlewareImageAccess(c *gin.Context) {
 	s.log.Debug("image", zap.String("path", c.Request.RequestURI), zap.Any("user", user))
 	c.Next()
 }
+
+// PublisherMiddleware проверяет, что у пользователя есть роль publisher.
+func (s *Server) PublisherMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user := s.getUser(c)
+		if user.ID == 0 {
+			c.Writer.WriteHeader(http.StatusUnauthorized)
+			c.Abort()
+			return
+		}
+		if !user.IsPublisher() {
+			c.Writer.WriteHeader(http.StatusForbidden)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}

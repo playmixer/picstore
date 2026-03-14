@@ -101,7 +101,7 @@ func (s *Storage) GetUser(ctx context.Context, login string) (*models.User, erro
 
 func (s *Storage) GetUserByID(ctx context.Context, userID uint) (*models.User, error) {
 	user := &models.User{}
-	err := s.db.WithContext(ctx).Where("id = ?", userID).First(user).Error
+	err := s.db.WithContext(ctx).Preload("Roles").Where("id = ?", userID).First(user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.Join(apperror.ErrNotFoundData, err)

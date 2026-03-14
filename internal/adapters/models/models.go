@@ -25,6 +25,21 @@ func (u *User) UnmarshalBinary(data []byte) error {
 	return json.Unmarshal(data, u)
 }
 
+// HasRole проверяет, есть ли у пользователя указанная роль.
+func (u *User) HasRole(role TRole) bool {
+	for _, r := range u.Roles {
+		if r.Name == role {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPublisher проверяет, есть ли у пользователя роль publisher.
+func (u *User) IsPublisher() bool {
+	return u.HasRole(ROLE_PUBLISHER)
+}
+
 const (
 	ROLE_ADMIN     TRole = "admin"
 	ROLE_USER      TRole = "user"
