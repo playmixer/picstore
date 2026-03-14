@@ -4,24 +4,48 @@
 .pagination {
     display: flex;
     justify-content: center;
-    margin-top: 20px;
+    align-items: center;
+    margin-top: 40px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 .pagination a {
-    margin: 0 5px;
-    padding: 5px 10px;
+    margin: 0;
+    padding: 10px 16px;
     text-decoration: none;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    color: #333;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    color: #555;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    background-color: white;
+    min-width: 44px;
+    text-align: center;
+}
+.pagination a:hover {
+    border-color: #007bff;
+    color: #007bff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 123, 255, 0.2);
 }
 .pagination a.active {
-    background-color: #ddd;
-    color: #333;
+    background-color: #007bff;
+    border-color: #007bff;
+    color: white;
+    font-weight: bold;
+}
+.pagination a.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: default;
 }
 </style>
 <div class="pagination">
     {{ if gt .pagination.prev 0 }}
     <a href="?page={{ .pagination.prev }}">&laquo; Предыдущая</a>
+    {{ else }}
+    <a class="disabled">&laquo; Предыдущая</a>
     {{ end }}
     {{ $cur := .pagination.cur }}
     {{ range .pagination.total|genNumbers }}
@@ -29,6 +53,8 @@
     {{ end }}
     {{ if gt .pagination.next 0 }}
     <a href="?page={{ .pagination.next }}">Следующая &raquo;</a>
+    {{ else }}
+    <a class="disabled">Следующая &raquo;</a>
     {{ end }}
 </div>
 {{ end }}

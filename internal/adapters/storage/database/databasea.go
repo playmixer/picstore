@@ -253,7 +253,7 @@ func (s *Storage) GetImage(ctx context.Context, path string) (*models.Image, err
 
 func (s *Storage) GetImages(ctx context.Context) ([]*models.Image, error) {
 	images := []*models.Image{}
-	err := s.db.WithContext(ctx).Preload("TagsRel").Find(&images).Error
+	err := s.db.WithContext(ctx).Preload("TagsRel").Order("created_at DESC").Find(&images).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed getting images: %w", err)
 	}
