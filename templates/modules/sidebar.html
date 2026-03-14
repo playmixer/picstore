@@ -1,0 +1,31 @@
+{{ define "modules/sidebar.html" }}
+<div class="sidebar">
+    <div class="sidebar-header">
+        <h3>Настройки ключа</h3>
+        <button class="sidebar-toggle" onclick="closeSidebar()">×</button>
+    </div>
+    <div class="sidebar-content">
+        <p>Здесь вы можете сохранить ключ для расшифровки изображений. Ключ хранится только в вашем браузере.</p>
+        <form id="keyForm">
+            <div class="form-group">
+                <label for="encryptionKey">Ключ шифрования</label>
+                <input type="password" id="encryptionKey" placeholder="Введите ключ" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <button type="submit" class="btn-save">Сохранить ключ</button>
+                <button type="button" class="btn-clear" onclick="clearKey()">Очистить ключ</button>
+            </div>
+        </form>
+        <div class="key-status">
+            <p>Статус: <span id="keyStatus">не сохранён</span></p>
+        </div>
+        <hr>
+        <div class="sidebar-links">
+            <a href="/i/upload">Загрузить изображение</a>
+            <a href="/i/posts">Мои посты</a>
+            <a href="/i">Профиль</a>
+            <a href="/posts">Все посты</a>
+        </div>
+    </div>
+</div>
+{{ end }}

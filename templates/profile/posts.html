@@ -1,5 +1,6 @@
 {{ define "profile/posts.html" }}
 {{ template "header.html" . }}
+<link rel="stylesheet" href="/css/modules/sidebar.css">
 <style>
     .container {
         display: grid;
@@ -136,6 +137,12 @@
         }
     }
 </style>
+
+{{ template "modules/sidebar.html" . }}
+
+<button class="sidebar-open-button" title="Открыть меню">☰</button>
+
+<div class="main-content-with-sidebar">
     <div class="search-form">
         <form method="GET" action="/i/posts" id="searchForm">
             <input type="text" name="tags" class="search-input" id="tagsInput" 
@@ -150,7 +157,7 @@
         <div class="image-box">
             <a href="/i/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}">
                 {{ if .IsEncrypted }}
-                <div class="encrypted-placeholder">
+                <div class="encrypted-placeholder" data-encrypted="true" data-path="{{ .Path }}">
                     <div>
                         <div style="font-size: 48px;">👁️‍🗨️</div>
                         <div style="font-size: 14px; color: #666; margin-top: 8px;">Скрыто</div>
@@ -164,7 +171,9 @@
     {{ end }}
     </div>
     {{ template "modules/pagination.html" . }}
+</div>
 
+<script src="/js/sidebar.js"></script>
 <script>
 (function() {
     const input = document.getElementById('tagsInput');
@@ -245,6 +254,39 @@
             child.classList.toggle('active', idx === currentFocus);
         });
     }
+})();
+</script>
+<script>
+(function() {
+    const ENCRYPTION_KEY_STORAGE = 'picstore_encryption_key';
+    const key = localStorage.getItem(ENCRYPTION_KEY_STORAGE);
+    if (!key) return;
+
+    // Обновление ссылок на просмотр
+    const links = document.querySelectorAll('.image-box a[href^="/i/view/"]');
+    links.forEach(link => {
+        const url = new URL(link.href, window.location.origin);
+        url.searchParams.set('key', key);
+        link.href = url.toString();
+    });
+
+    // Замена placeholder на изображение
+    const placeholders = document.querySelectorAll('.encrypted-placeholder[data-encrypted="true"]');
+    placeholders.forEach(placeholder => {
+        const path = placeholder.getAttribute('data-path');
+        const img = document.createElement('img');
+        img.src = `/i/view/${path}?key=${encodeURIComponent(key)}&view=file`;
+        img.alt = 'Зашифрованное изображение';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain';
+        img.style.display = 'block';
+
+        const parent = placeholder.parentNode; // это <a>
+        if (parent) {
+            parent.replaceChild(img, placeholder);
+        }
+    });
 })();
 </script>
 
