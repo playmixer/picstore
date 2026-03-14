@@ -21,6 +21,10 @@ services:
       REDIS_ADDRESS: ${REDIS_ADDRESS}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DB: ${REDIS_DB}
+      CACHE_TTL: ${CACHE_TTL}
+      PIC_PATH: ${PIC_PATH}
+      SSO_AUTH_URL: ${SSO_AUTH_URL}
+      SSO_AUTH_CERT_FILE: ${SSO_AUTH_CERT_FILE}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
