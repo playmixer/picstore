@@ -1,0 +1,14 @@
+{{ define "view.html" }}
+{{ template "header.html" . }}
+{{ if .prev }}
+<a href="{{ .prev }}">Предыдущий</a>
+{{ end }}
+{{ if .next }}
+<a href="{{ .next }}">Следующий</a>
+{{ end }}
+
+
+<img src="{{ .image }}" alt="">
+
+{{ template "footer.html" . }}
+{{ end }}

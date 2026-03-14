@@ -1,0 +1,33 @@
+{{ define "modules/pagination.html" }}
+<style>
+.pagination {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+.pagination a {
+    margin: 0 5px;
+    padding: 5px 10px;
+    text-decoration: none;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    color: #333;
+}
+.pagination a.active {
+    background-color: #ddd;
+    color: #333;
+}
+</style>
+<div class="pagination">
+    {{ if (beforeI .pagination.prev 0) }}
+    <a href="?page={{ .pagination.prev }}">&laquo; Предыдущая</a>
+    {{ end }}
+    {{ $cur := .pagination.cur }}
+    {{ range .pagination.total|genNumbers }}
+    <a href="?page={{ . }}" class="{{ if (eq . $cur) }}active{{ end }}">{{ . }}</a>
+    {{ end }}
+    {{ if (afterI .pagination.cur .pagination.total) }}
+    <a href="?page={{ .pagination.next }}">Следующая &raquo;</a>
+    {{ end }}
+</div>
+{{ end }}

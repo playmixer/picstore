@@ -1,0 +1,153 @@
+{{ define "profile/upload.html" }}
+{{ template "header.html" . }}
+<style>
+    .upload-container {
+        width: 80%;
+        margin: auto;
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .upload-header {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .upload-header h1 {
+        color: #333;
+    }
+    .upload-form {
+        display: flex;
+        flex-direction: column;
+        flex-wrap: wrap;
+        justify-content: space-between;
+    }
+    .upload-form input {
+        width: 48%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        margin-bottom: 20px;
+    }
+    .upload-form input[type="file"] {
+        width: calc(100% - 20px);
+    }
+    .upload-form input[type="text"] {
+        width: calc(100% - 20px);
+    }
+    .upload-form input[type="checkbox"] {
+        margin-right: 10px;
+    }
+    .upload-form label {
+        font-weight: bold;
+    }
+    .upload-form .btn {
+        padding: 10px 20px;
+        margin-top: 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    .upload-form .btn:hover {
+        background-color: #ddd;
+    }
+    .form-input {
+        display: flex;
+        flex-direction: row;
+        align-items: start;
+    }
+    .form-input input[type="checkbox"] {
+        width: 30px;
+    }
+    /* Табы */
+    .tabs {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 20px;
+    }
+    .tabs .tab {
+        width: 50%;
+        text-align: center;
+        padding: 10px;
+        border: 1px solid #ccc;
+        text-decoration: none;
+        color: black;
+    }
+    .tabs .tab.active {
+        background-color: #fff;
+        border-bottom: 1px solid #fff;
+    }
+</style>
+<div class="upload-container">
+    <div class="info"></div>
+    <div class="error"></div>
+    <div class="upload-header">
+        <h1>Загрузка картинки</h1>
+    </div>
+    <div class="tabs">
+        <a href="#" class="tab active" data-tab="file">Загрузить файл</a>
+        <a href="#" class="tab" data-tab="url">Вставить URL</a>
+    </div>
+    <form action="/i/upload" method="post" enctype="multipart/form-data" id="form_file">
+        <input type="hidden" name="type" value="file">
+        <div class="upload-form">
+            <div id="input_file">
+                <label for="file">Выберите файл</label>
+                <input type="file" name="file" id="file" required>
+            </div>
+            <div class="form-input">
+                <label for="is_public">Публичная</label>
+                <input type="checkbox" name="is_public" id="is_public" checked>
+            </div>
+
+            <div class="form-input">
+                <label for="tags">Теги (через пробел)</label>
+                <input type="text" name="tags" id="tags" placeholder="например, природа котики лето">
+            </div>
+
+            <input type="submit" class="btn" value="Загрузить картинку">
+        </div>
+    </form>
+    <form action="" method="post" enctype="multipart/form-data" id="form_url" style="display: none;">
+        <input type="hidden" name="type" value="url">
+        <div class="upload-form">
+            <div id="input_url">
+                <label for="url">Ссылка</label>
+                <input type="text" name="url" id="url" required>
+            </div>
+
+            <div class="form-input">
+                <label for="is_public">Публичная</label>
+                <input type="checkbox" name="is_public" id="is_public" checked>
+            </div>
+
+            <div class="form-input">
+                <label for="tags">Теги (через пробел)</label>
+                <input type="text" name="tags" id="tags" placeholder="например, природа котики лето">
+            </div>
+
+            <input type="submit" class="btn" value="Загрузить картинку">
+        </div>
+    </form>
+</div>
+<script>
+    const tabs = document.querySelectorAll(".tab")
+    const forms = document.querySelectorAll("form")
+    for (let tab of tabs) {
+        tab.addEventListener("click", function (e) {
+            for (var i = 0;i <= tabs.length; i++) {
+                forms[i].style.display = "none"
+                tabs[i].classList.remove("active")
+                if (e.target == tabs[i]) {
+                    forms[i].style.display = "block"
+                    tabs[i].classList.add("active")
+                }
+            }
+        })
+    }
+</script>
+<script>
+    
+</script>
+{{ template "footer.html" . }}
+{{ end }}

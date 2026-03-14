@@ -1,0 +1,83 @@
+{{ define "profile/index.html" }}
+{{ template "header.html" . }}
+    <style>
+        .profile-container {
+            width: 80%;
+            margin: auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .profile-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .profile-header h1 {
+            color: #333;
+        }
+        .profile-info {
+            display: flex;
+            justify-content: space-between;
+        }
+        .profile-info div {
+            width: 48%;
+        }
+        .profile-info div:last-child {
+            text-align: right;
+        }
+        .profile-image {
+            width: 100%;
+            height: auto;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .profile-details {
+            margin-bottom: 20px;
+        }
+        .profile-details p {
+            margin: 0;
+            color: #666;
+        }
+        .profile-buttons {
+            text-align: center;
+        }
+        .profile-buttons button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .profile-buttons button:hover {
+            background-color: #ddd;
+        }
+    </style>
+    <div class="profile-container">
+    <div class="profile-header">
+        <h1>Профиль пользователя</h1>
+    </div>
+    <div class="profile-info">
+        <div>
+            <p>Имя: {{ .user.Username }}</p>
+            <p>Email: {{ .user.Email }}</p>
+            <p>Телефон: +7 (900) 123-45-67</p>
+        </div>
+        <div>
+            <p>Дата регистрации: {{ .user.CreatedAt|datetimeF }}</p>
+        </div>
+    </div>
+    <div class="profile-image">
+        <img src="profile_image.jpg" alt="Профиль пользователя">
+    </div>
+    <div class="profile-details">
+        <p>О себе: Я люблю путешествовать и фотографировать.</p>
+    </div>
+    <div class="profile-buttons">
+        <button>Редактировать профиль</button>
+        <button>Изменить пароль</button>
+        <button>Выйти</button>
+    </div>
+</div>
+{{ template "footer.html" . }}
+{{ end }}

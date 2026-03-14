@@ -1,0 +1,39 @@
+{{ define "posts.html" }}
+{{ template "header.html" . }}
+<style>
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            padding: 20px;
+        }
+        .image-box {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            max-width: 300px;
+            max-height: 500px;
+            margin-bottom: 20px;
+            border: none;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .image-box img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+    </style>
+    <div class="container">
+    {{ range .posts }}
+        <div class="image-box">
+            <a href="/view/{{.Path}}">
+                <img src="/image/{{ .Path }}" alt="{{ .Path }}">
+            </a>
+        </div>
+    {{ end }}
+    </div>
+    {{ template "modules/pagination.html" . }}
+
+{{ template "footer.html" . }}
+{{ end }}

@@ -1,0 +1,32 @@
+{{ define "header.html" }}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Мой сайт</title>
+    <style>
+
+        /* Стили для основного контента */
+        main {
+            padding: 20px;
+        }
+        section {
+            margin-bottom: 50px;
+        }
+        h1 {
+            color: #6666ff;
+            font-size: 30px;
+        }
+        p {
+            color: #0000ff;
+        }
+    </style>
+</head>
+<body>
+
+    {{ template "modules/navigate.html" . }}
+
+    <main style="min-height: calc(100vh - 350px);">
+{{ end }}

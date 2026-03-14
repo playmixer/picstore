@@ -1,0 +1,35 @@
+{{ define "404.html" }}
+{{ template "header.html" . }}
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background-color: #f4f4f4;
+    }
+    .error-container {
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        padding: 20px;
+        width: 100%;
+        max-width: 400px;
+    }
+    .error-title {
+        color: #333;
+        margin-bottom: 10px;
+    }
+    .error-message {
+        color: #666;
+    }
+</style>
+<div class="error-container">
+    <h1 class="error-title">Ошибка 404</h1>
+    <p class="error-message">Страница не найдена.</p>
+    <p>Возможно, вы ввели неправильный адрес или страница была удалена.</p>
+    <a href="/">Вернуться на главную</a>
+</div>
+{{ template "footer.html" . }}
+{{ end }}

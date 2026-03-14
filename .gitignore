@@ -1,0 +1,6 @@
+.env
+*.setting.json
+data
+logs
+tmp
+*.exe
