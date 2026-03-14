@@ -133,10 +133,12 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 	formType := c.PostForm("type")
 	isPublic := c.PostForm("is_public") == "on"
 	tags := c.PostForm("tags")
+	encryptionKey := c.PostForm("encryption_key")
 	s.log.Debug("upload",
 		zap.String("type", formType),
 		zap.Bool("isPublic", isPublic),
 		zap.String("tags", tags),
+		zap.Bool("hasEncryptionKey", encryptionKey != ""),
 	)
 
 	if formType == "file" {
@@ -146,7 +148,7 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("ошибка получения файла")))
 			return
 		}
-		_, err = s.pic.UploadImgFile(c.Request.Context(), user.ID, file, isPublic, tags)
+		_, err = s.pic.UploadImgFile(c.Request.Context(), user.ID, file, isPublic, tags, encryptionKey)
 		if err != nil {
 			s.log.Error("failed save file", zap.Error(err))
 			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не удалось сохранить файл")))
@@ -154,7 +156,7 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 		}
 	} else {
 		link := c.PostForm("url")
-		_, err := s.pic.UploadImgURL(c.Request.Context(), user.ID, link, isPublic, tags)
+		_, err := s.pic.UploadImgURL(c.Request.Context(), user.ID, link, isPublic, tags, encryptionKey)
 		if err != nil {
 			s.log.Error("failed save file from url", zap.String("url", link), zap.Error(err))
 			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape("не удалось сохранить файл")))
@@ -274,6 +276,7 @@ func (s *Server) handlerView(c *gin.Context) {
 	filename := c.Param("filename")
 	view := c.Query("view")
 	tagsParam := strings.TrimSpace(c.Query("tags"))
+	key := c.Query("key")
 
 	s.log.Debug("view",
 		zap.String("y", year),
@@ -282,6 +285,7 @@ func (s *Server) handlerView(c *gin.Context) {
 		zap.String("h", hour),
 		zap.String("filename", filename),
 		zap.String("tags", tagsParam),
+		zap.String("key", key),
 	)
 
 	path := path.Join(year, month, day, hour, filename)
@@ -296,6 +300,20 @@ func (s *Server) handlerView(c *gin.Context) {
 	}
 
 	if view == "file" {
+		// Если изображение зашифровано и передан ключ, пытаемся расшифровать
+		if img.IsEncrypted && key != "" {
+			decryptedData, err := s.pic.DecryptImage(c.Request.Context(), path, key)
+			if err != nil {
+				c.HTML(http.StatusForbidden, "error.html", gin.H{
+					"error": "Неверный ключ или не удалось расшифровать",
+					"user":  user,
+				})
+				return
+			}
+			c.Data(http.StatusOK, "image/"+img.Extension, decryptedData)
+			return
+		}
+		// Иначе отдаём как есть (зашифрованные данные или оригинал)
 		c.Data(http.StatusOK, "image/"+img.Extension, img.GetData())
 		return
 	}
@@ -323,15 +341,29 @@ func (s *Server) handlerView(c *gin.Context) {
 	prev := ""
 	if img.Prev != nil {
 		prev = fmt.Sprintf("/view/%s", img.Prev.Path)
+		queryParams := make([]string, 0)
 		if tagsParam != "" {
-			prev += "?tags=" + url.QueryEscape(tagsParam)
+			queryParams = append(queryParams, "tags="+url.QueryEscape(tagsParam))
+		}
+		if key != "" {
+			queryParams = append(queryParams, "key="+url.QueryEscape(key))
+		}
+		if len(queryParams) > 0 {
+			prev += "?" + strings.Join(queryParams, "&")
 		}
 	}
 	next := ""
 	if img.Next != nil {
 		next = fmt.Sprintf("/view/%s", img.Next.Path)
+		queryParams := make([]string, 0)
 		if tagsParam != "" {
-			next += "?tags=" + url.QueryEscape(tagsParam)
+			queryParams = append(queryParams, "tags="+url.QueryEscape(tagsParam))
+		}
+		if key != "" {
+			queryParams = append(queryParams, "key="+url.QueryEscape(key))
+		}
+		if len(queryParams) > 0 {
+			next += "?" + strings.Join(queryParams, "&")
 		}
 	}
 	c.HTML(http.StatusOK, "view.html", gin.H{
@@ -341,6 +373,7 @@ func (s *Server) handlerView(c *gin.Context) {
 		"prev":  prev,
 		"next":  next,
 		"tags":  tagsParam,
+		"key":   key,
 	})
 }
 
@@ -353,13 +386,45 @@ func (s *Server) handlerUserPosts(c *gin.Context) {
 		return
 	}
 
-	posts, err := s.pic.GetUserPosts(c.Request.Context(), user.ID)
+	// Получаем все посты пользователя
+	allPosts, err := s.pic.GetUserPosts(c.Request.Context(), user.ID)
 	if err != nil {
 		s.log.Error("failed get user posts", zap.Error(err))
 		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/posts?error=%s", url.QueryEscape("не удалось получить посты")))
 		return
 	}
 
+	// Фильтрация по тегам
+	tagsParam := strings.TrimSpace(c.Query("tags"))
+	var filteredPosts []*picstore.PicImage
+	if tagsParam != "" {
+		searchTags := strings.Fields(tagsParam)
+		// Вспомогательная функция для проверки тегов
+		containsAllTags := func(imageTags string, searchTags []string) bool {
+			if len(searchTags) == 0 {
+				return true
+			}
+			tagMap := make(map[string]bool)
+			for _, t := range strings.Fields(imageTags) {
+				tagMap[t] = true
+			}
+			for _, st := range searchTags {
+				if !tagMap[st] {
+					return false
+				}
+			}
+			return true
+		}
+		for _, img := range allPosts {
+			if containsAllTags(img.Tags, searchTags) {
+				filteredPosts = append(filteredPosts, img)
+			}
+		}
+	} else {
+		filteredPosts = allPosts
+	}
+
+	// Пагинация
 	page := c.Query("page")
 	if page == "" {
 		page = "1"
@@ -369,7 +434,7 @@ func (s *Server) handlerUserPosts(c *gin.Context) {
 		curPage = 1
 	}
 
-	start, end, total := pagify(len(posts), pageSize, curPage)
+	start, end, total := pagify(len(filteredPosts), pageSize, curPage)
 	prev := curPage - 1
 	if prev < 1 {
 		prev = 0
@@ -378,15 +443,185 @@ func (s *Server) handlerUserPosts(c *gin.Context) {
 	if next > total {
 		next = 0
 	}
-	c.HTML(http.StatusOK, "posts.html", gin.H{
-		"posts": posts[start:end],
+	c.HTML(http.StatusOK, "profile/posts.html", gin.H{
+		"posts": filteredPosts[start:end],
 		"user":  user,
+		"tags":  tagsParam,
 		"pagination": gin.H{
 			"total": total,
 			"cur":   curPage,
 			"prev":  prev,
 			"next":  next,
 		},
+	})
+}
+
+// GET /i/view/:y/:m/:d/:h/:filename - просмотр своих картинок с навигацией по своим изображениям
+func (s *Server) handlerUserView(c *gin.Context) {
+	user := s.getUser(c)
+	if user.ID == 0 {
+		// не аутентифицирован, но middleware authMiddleware уже должен был отклонить
+		c.Redirect(http.StatusSeeOther, "/sso/auth")
+		return
+	}
+
+	year := c.Param("y")
+	month := c.Param("m")
+	day := c.Param("d")
+	hour := c.Param("h")
+	filename := c.Param("filename")
+	view := c.Query("view")
+	tagsParam := strings.TrimSpace(c.Query("tags"))
+
+	s.log.Debug("user view",
+		zap.String("y", year),
+		zap.String("m", month),
+		zap.String("d", day),
+		zap.String("h", hour),
+		zap.String("filename", filename),
+		zap.String("tags", tagsParam),
+	)
+
+	path := path.Join(year, month, day, hour, filename)
+
+	img, err := s.pic.GetImg(c.Request.Context(), path)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "view.html", gin.H{
+			"error": "Файл не найден",
+			"user":  user,
+		})
+		return
+	}
+
+	// Проверяем, что изображение принадлежит пользователю
+	if img.UserID != user.ID {
+		c.HTML(http.StatusForbidden, "error.html", gin.H{
+			"error": "Нет прав на просмотр этого изображения",
+			"user":  user,
+		})
+		return
+	}
+
+	key := c.Query("key")
+	if view == "file" {
+		// Если изображение зашифровано и передан ключ, пытаемся расшифровать
+		if img.IsEncrypted && key != "" {
+			decryptedData, err := s.pic.DecryptImage(c.Request.Context(), path, key)
+			if err != nil {
+				c.HTML(http.StatusForbidden, "error.html", gin.H{
+					"error": "Неверный ключ или не удалось расшифровать",
+					"user":  user,
+				})
+				return
+			}
+			c.Data(http.StatusOK, "image/"+img.Extension, decryptedData)
+			return
+		}
+		// Иначе отдаём как есть (зашифрованные данные или оригинал)
+		c.Data(http.StatusOK, "image/"+img.Extension, img.GetData())
+		return
+	}
+
+	// Получаем все изображения пользователя
+	allPosts, err := s.pic.GetUserPosts(c.Request.Context(), user.ID)
+	if err != nil {
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"error": "Ошибка получения файла",
+		})
+		return
+	}
+
+	// Фильтрация по тегам
+	var filteredPosts []*picstore.PicImage
+	if tagsParam != "" {
+		searchTags := strings.Fields(tagsParam)
+		containsAllTags := func(imageTags string, searchTags []string) bool {
+			if len(searchTags) == 0 {
+				return true
+			}
+			tagMap := make(map[string]bool)
+			for _, t := range strings.Fields(imageTags) {
+				tagMap[t] = true
+			}
+			for _, st := range searchTags {
+				if !tagMap[st] {
+					return false
+				}
+			}
+			return true
+		}
+		for _, post := range allPosts {
+			if containsAllTags(post.Tags, searchTags) {
+				filteredPosts = append(filteredPosts, post)
+			}
+		}
+	} else {
+		filteredPosts = allPosts
+	}
+
+	// Устанавливаем связи Prev/Next для отфильтрованного списка
+	for i := range filteredPosts {
+		if i > 0 {
+			filteredPosts[i].Prev = filteredPosts[i-1]
+		} else {
+			filteredPosts[i].Prev = nil
+		}
+		if i < len(filteredPosts)-1 {
+			filteredPosts[i].Next = filteredPosts[i+1]
+		} else {
+			filteredPosts[i].Next = nil
+		}
+	}
+
+	// Находим текущее изображение в отфильтрованном списке
+	var currentImg *picstore.PicImage
+	for _, row := range filteredPosts {
+		if row.ID == img.ID {
+			currentImg = row
+			break
+		}
+	}
+	if currentImg == nil {
+		// Если изображение не попало в фильтр (например, не соответствует тегам), показываем его без навигации
+		currentImg = img
+	}
+
+	prev := ""
+	if currentImg.Prev != nil {
+		prev = fmt.Sprintf("/i/view/%s", currentImg.Prev.Path)
+		queryParams := make([]string, 0)
+		if tagsParam != "" {
+			queryParams = append(queryParams, "tags="+url.QueryEscape(tagsParam))
+		}
+		if key != "" {
+			queryParams = append(queryParams, "key="+url.QueryEscape(key))
+		}
+		if len(queryParams) > 0 {
+			prev += "?" + strings.Join(queryParams, "&")
+		}
+	}
+	next := ""
+	if currentImg.Next != nil {
+		next = fmt.Sprintf("/i/view/%s", currentImg.Next.Path)
+		queryParams := make([]string, 0)
+		if tagsParam != "" {
+			queryParams = append(queryParams, "tags="+url.QueryEscape(tagsParam))
+		}
+		if key != "" {
+			queryParams = append(queryParams, "key="+url.QueryEscape(key))
+		}
+		if len(queryParams) > 0 {
+			next += "?" + strings.Join(queryParams, "&")
+		}
+	}
+	c.HTML(http.StatusOK, "profile/view.html", gin.H{
+		"user":  user,
+		"image": fmt.Sprintf("/image/%s/%s/%s/%s/%s", year, month, day, hour, filename),
+		"img":   currentImg,
+		"prev":  prev,
+		"next":  next,
+		"tags":  tagsParam,
+		"key":   key,
 	})
 }
 

@@ -177,13 +177,16 @@ func (s *Storage) NewRole(ctx context.Context, name string) (*models.Role, error
 	return role, nil
 }
 
-func (s *Storage) NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string) (*models.Image, error) {
+func (s *Storage) NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error) {
 	// Создаём изображение
 	img := &models.Image{
-		UserID:   userID,
-		Path:     path,
-		IsPublic: isPublic,
-		Tags:     tags, // сохраняем исходную строку для обратной совместимости
+		UserID:      userID,
+		Path:        path,
+		IsPublic:    isPublic,
+		Tags:        tags, // сохраняем исходную строку для обратной совместимости
+		IsEncrypted: isEncrypted,
+		Salt:        salt,
+		Nonce:       nonce,
 	}
 	err := s.db.WithContext(ctx).Save(img).Error
 	if err != nil {

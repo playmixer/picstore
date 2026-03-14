@@ -1,4 +1,4 @@
-{{ define "posts.html" }}
+{{ define "profile/posts.html" }}
 {{ template "header.html" . }}
 <style>
         .container {
@@ -67,7 +67,7 @@
         }
     </style>
     <div class="search-form">
-        <form method="GET" action="/posts" id="searchForm">
+        <form method="GET" action="/i/posts" id="searchForm">
             <input type="text" name="tags" class="search-input" id="tagsInput" 
                    placeholder="Введите теги через пробел" value="{{.tags}}" autocomplete="off">
             <button type="submit" class="search-button">Найти</button>
@@ -78,7 +78,7 @@
     <div class="container">
     {{ range .posts }}
         <div class="image-box">
-            <a href="/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}">
+            <a href="/i/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}">
                 {{ if .IsEncrypted }}
                 <div class="encrypted-placeholder" style="width: 100%; height: 200px; background-color: #f0f0f0; display: flex; align-items: center; justify-content: center; border-radius: 4px;">
                     <div style="text-align: center;">

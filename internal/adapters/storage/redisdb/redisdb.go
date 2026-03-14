@@ -39,3 +39,7 @@ func (r *RedisDB) GetH(ctx context.Context, key string, obj types.ObjInterface) 
 func (r *RedisDB) SetH(ctx context.Context, key string, value types.ObjInterface, ttl time.Duration) error {
 	return r.Client.Set(ctx, key, value, ttl).Err()
 }
+
+func (r *RedisDB) Remove(ctx context.Context, key string) error {
+	return r.Client.Del(ctx, key).Err()
+}

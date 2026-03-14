@@ -26,7 +26,7 @@ type Storage interface {
 	NewRole(ctx context.Context, name string) (*models.Role, error)
 	GetRole(ctx context.Context, name string) (*models.Role, error)
 
-	NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string) (*models.Image, error)
+	NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error)
 	DelImage(ctx context.Context, userID uint, imageID uint) error
 	GetImage(ctx context.Context, path string) (*models.Image, error)
 	GetImages(ctx context.Context) ([]*models.Image, error)
@@ -52,6 +52,7 @@ type Cache interface {
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	GetH(ctx context.Context, key string, obj types.ObjInterface) (err error)
 	SetH(ctx context.Context, key string, value types.ObjInterface, ttl time.Duration) error
+	Remove(ctx context.Context, key string) error
 }
 
 func NewCache(cfg ConfigCache) (Cache, error) {

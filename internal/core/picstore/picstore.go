@@ -32,10 +32,11 @@ type cache interface {
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	GetH(ctx context.Context, key string, obj types.ObjInterface) (err error)
 	SetH(ctx context.Context, key string, value types.ObjInterface, ttl time.Duration) error
+	Remove(ctx context.Context, key string) error
 }
 
 type store interface {
-	NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string) (*models.Image, error)
+	NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error)
 	DelImage(ctx context.Context, userID uint, imageID uint) error
 	GetImage(ctx context.Context, path string) (*models.Image, error)
 	GetImages(ctx context.Context) ([]*models.Image, error)
@@ -43,9 +44,10 @@ type store interface {
 }
 
 type self interface {
-	UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string) (*PicImage, error)
-	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string) (*PicImage, error)
+	UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*PicImage, error)
+	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string, encryptionKey string) (*PicImage, error)
 	GetImg(ctx context.Context, path string) (*PicImage, error)
+	DecryptImage(ctx context.Context, path string, key string) ([]byte, error)
 	GetPosts(ctx context.Context) ([]*PicImage, error)
 	GetPostsWithTags(ctx context.Context, tags string) ([]*PicImage, error)
 	GetPostsPage(ctx context.Context, page, pageSize int, tags string) ([]*PicImage, error)
@@ -59,7 +61,7 @@ type PicStore struct {
 	store       store
 	log         *logger.Logger
 	cache       cache
-	cacheTTL    time.Duration
+	cfg         Config
 	picturePath string
 	locker      map[string]*sync.Mutex
 }
@@ -73,7 +75,7 @@ func New(cfg Config, log *logger.Logger, store store, cache cache) (*PicStore, e
 		store:       store,
 		log:         log,
 		cache:       cache,
-		cacheTTL:    cfg.CacheTTL,
+		cfg:         cfg,
 		picturePath: cfg.PicPath,
 		locker: map[string]*sync.Mutex{
 			nsImagesAll:   &sync.Mutex{},
@@ -84,7 +86,7 @@ func New(cfg Config, log *logger.Logger, store store, cache cache) (*PicStore, e
 	return p, nil
 }
 
-func (p *PicStore) UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string) (*PicImage, error) {
+func (p *PicStore) UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*PicImage, error) {
 	filename := f.Filename
 	extension := filepath.Ext(filename)
 	file, err := f.Open()
@@ -97,17 +99,17 @@ func (p *PicStore) UploadImgFile(ctx context.Context, userID uint, f *multipart.
 		return nil, fmt.Errorf("failed reade file: %w", err)
 	}
 
-	return p.storeImg(ctx, userID, isPublic, tags, data, extension)
+	return p.storeImg(ctx, userID, isPublic, tags, encryptionKey, data, extension)
 }
 
-func (p *PicStore) UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string) (*PicImage, error) {
+func (p *PicStore) UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string, encryptionKey string) (*PicImage, error) {
 	data, err := downloadImage(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed download image: %w", err)
 	}
 
 	extension := filepath.Ext(url)
-	return p.storeImg(ctx, userID, isPublic, tags, data, extension)
+	return p.storeImg(ctx, userID, isPublic, tags, encryptionKey, data, extension)
 }
 
 func tagsFromImage(img *models.Image) string {
@@ -140,7 +142,7 @@ func containsAllTags(imageTags string, searchTags []string) bool {
 	return true
 }
 
-func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tags string, data []byte, extension string) (*PicImage, error) {
+func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tags string, encryptionKey string, data []byte, extension string) (*PicImage, error) {
 	cur := time.Now()
 	// относительный путь для БД
 	storeDir := path.Join(cur.Format("2006"), cur.Format("01"), cur.Format("02"), cur.Format("15"))
@@ -156,18 +158,34 @@ func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tag
 	newFilename := tools.RandomString(lengthFilename) + extension
 	tmpFullFilename := path.Join(tmpDir, newFilename)
 	storeFullFilename := path.Join(storeDir, newFilename)
+
+	// Шифрование, если указан ключ
+	var salt, nonce []byte
+	var finalData = data
+	isEncrypted := false
+	if encryptionKey != "" && p.cfg.EnableEncryption {
+		encryptedData, fileNonce, generatedSalt, err := p.encryptFile(data, encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt file: %w", err)
+		}
+		finalData = encryptedData
+		nonce = fileNonce
+		salt = generatedSalt
+		isEncrypted = true
+	}
+
 	file, err := os.Create(tmpFullFilename)
 	if err != nil {
 		return nil, fmt.Errorf("faild create file `%s`: %w", tmpFullFilename, err)
 	}
 	defer file.Close()
 
-	_, err = file.Write(data)
+	_, err = file.Write(finalData)
 	if err != nil {
 		return nil, fmt.Errorf("failed save file: %w", err)
 	}
 
-	img, err := p.store.NewImage(ctx, userID, storeFullFilename, isPublic, tags)
+	img, err := p.store.NewImage(ctx, userID, storeFullFilename, isPublic, tags, isEncrypted, salt, nonce)
 	if err != nil {
 		go func() {
 			err := os.Remove(tmpFullFilename)
@@ -182,13 +200,16 @@ func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tag
 	p.invalidateCache(ctx)
 
 	return &PicImage{
-		ID:        img.ID,
-		Filename:  newFilename,
-		Path:      storeFullFilename,
-		Extension: extensify(extension),
-		IsPublic:  img.IsPublic,
-		UserID:    img.UserID,
-		Tags:      tagsFromImage(img),
+		ID:          img.ID,
+		Filename:    newFilename,
+		Path:        storeFullFilename,
+		Extension:   extensify(extension),
+		IsPublic:    img.IsPublic,
+		UserID:      img.UserID,
+		Tags:        tagsFromImage(img),
+		IsEncrypted: img.IsEncrypted,
+		Salt:        img.Salt,
+		Nonce:       img.Nonce,
 	}, nil
 }
 
@@ -201,16 +222,19 @@ func (p *PicStore) GetImg(ctx context.Context, path string) (*PicImage, error) {
 	}
 
 	return &PicImage{
-		ID:        img.ID,
-		IsPublic:  img.IsPublic,
-		Path:      fullPath,
-		Extension: extensify(filepath.Ext(path)),
-		UserID:    img.UserID,
-		Tags:      tagsFromImage(img),
+		ID:          img.ID,
+		IsPublic:    img.IsPublic,
+		Path:        fullPath,
+		Extension:   extensify(filepath.Ext(path)),
+		UserID:      img.UserID,
+		Tags:        tagsFromImage(img),
+		IsEncrypted: img.IsEncrypted,
+		Salt:        img.Salt,
+		Nonce:       img.Nonce,
 	}, nil
 }
 
-func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool) ([]*PicImage, error) {
+func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, skipEncrypted bool) ([]*PicImage, error) {
 	var err error
 	data := models.Images{}
 	p.locker[nsImagesAll].Lock()
@@ -219,7 +243,7 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool) (
 		if err != nil {
 			return []*PicImage{}, fmt.Errorf("failed gettings images: %w", err)
 		}
-		if err := p.cache.SetH(ctx, nsImagesAll, &data, p.cacheTTL); err != nil {
+		if err := p.cache.SetH(ctx, nsImagesAll, &data, p.cfg.CacheTTL); err != nil {
 			p.log.Error("failed cacheing images", zap.Error(err))
 		}
 	}
@@ -227,13 +251,20 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool) (
 
 	filtered := make([]*PicImage, 0)
 	for _, line := range data {
+		// Пропускаем зашифрованные изображения, если требуется
+		if skipEncrypted && line.IsEncrypted {
+			continue
+		}
 		image := &PicImage{
-			ID:        line.ID,
-			IsPublic:  line.IsPublic,
-			Path:      line.Path,
-			Extension: extensify(filepath.Ext(line.Path)),
-			UserID:    line.UserID,
-			Tags:      tagsFromImage(line),
+			ID:          line.ID,
+			IsPublic:    line.IsPublic,
+			Path:        line.Path,
+			Extension:   extensify(filepath.Ext(line.Path)),
+			UserID:      line.UserID,
+			Tags:        tagsFromImage(line),
+			IsEncrypted: line.IsEncrypted,
+			Salt:        line.Salt,
+			Nonce:       line.Nonce,
 		}
 		if filter(image) {
 			filtered = append(filtered, image)
@@ -259,11 +290,11 @@ func (p *PicStore) GetPosts(ctx context.Context) ([]*PicImage, error) {
 
 	p.locker[nsPostsPublic].Lock()
 	if err = p.cache.GetH(ctx, nsPostsPublic, &data); err != nil {
-		data, err = p.getImages(ctx, func(pi *PicImage) bool { return pi.IsPublic == true })
+		data, err = p.getImages(ctx, func(pi *PicImage) bool { return pi.IsPublic == true }, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed getting public posts: %w", err)
 		}
-		if err := p.cache.SetH(ctx, nsPostsPublic, &data, p.cacheTTL); err != nil {
+		if err := p.cache.SetH(ctx, nsPostsPublic, &data, p.cfg.CacheTTL); err != nil {
 			p.log.Error("failed cacheing posts", zap.Error(err))
 		}
 	}
@@ -349,22 +380,55 @@ func (p *PicStore) GetPostsPage(ctx context.Context, page, pageSize int, tags st
 	// Преобразуем в picImages для кэширования
 	cacheData := picImages(pagePosts)
 	// Кэшируем страницу с тем же TTL, что и общий кэш
-	if err := p.cache.SetH(ctx, key, &cacheData, p.cacheTTL); err != nil {
-		p.log.Error("failed cacheing page", zap.Error(err))
+	if err := p.cache.SetH(ctx, key, &cacheData, p.cfg.CacheTTL); err != nil {
+		p.log.Error("failed caching page", zap.Error(err))
 	}
 	return pagePosts, nil
 }
 
-// GetTagsWithCount возвращает карту тегов с количеством изображений, содержащих каждый тег.
-// Возвращает map[tag]count.
+// invalidateCache очищает кэши images:all и posts:public
+func (p *PicStore) invalidateCache(ctx context.Context) {
+	p.locker[nsImagesAll].Lock()
+	_ = p.cache.Remove(ctx, nsImagesAll) // удаляем кэш
+	p.locker[nsImagesAll].Unlock()
+
+	p.locker[nsPostsPublic].Lock()
+	_ = p.cache.Remove(ctx, nsPostsPublic) // удаляем кэш
+	p.locker[nsPostsPublic].Unlock()
+}
+
+// UpdateImage обновляет изображение (публичность, теги)
+func (p *PicStore) UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error {
+	err := p.store.UpdateImage(ctx, userID, imageID, isPublic, tags)
+	if err != nil {
+		return err
+	}
+	// Инвалидируем кэш, так как данные изменились
+	p.invalidateCache(ctx)
+	return nil
+}
+
+// DeleteImage удаляет изображение
+func (p *PicStore) DeleteImage(ctx context.Context, userID uint, imageID uint) error {
+	// Сначала получим изображение, чтобы узнать путь к файлу
+	// (пока просто удаляем из хранилища, файл останется - нужно доработать)
+	err := p.store.DelImage(ctx, userID, imageID)
+	if err != nil {
+		return err
+	}
+	p.invalidateCache(ctx)
+	return nil
+}
+
+// GetTagsWithCount возвращает карту тегов с количеством их использования в публичных постах
 func (p *PicStore) GetTagsWithCount(ctx context.Context) (map[string]int, error) {
 	posts, err := p.GetPosts(ctx)
 	if err != nil {
 		return nil, err
 	}
 	tagCount := make(map[string]int)
-	for _, img := range posts {
-		tags := strings.Fields(img.Tags)
+	for _, post := range posts {
+		tags := strings.Fields(post.Tags)
 		for _, tag := range tags {
 			tagCount[tag]++
 		}
@@ -372,48 +436,40 @@ func (p *PicStore) GetTagsWithCount(ctx context.Context) (map[string]int, error)
 	return tagCount, nil
 }
 
+// GetUserPosts возвращает все изображения пользователя (включая приватные)
 func (p *PicStore) GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error) {
-	// Используем getImages с фильтром по userID
-	return p.getImages(ctx, func(pi *PicImage) bool { return pi.UserID == userID })
-}
-
-// invalidateCache инвалидирует кэши изображений и публичных постов.
-func (p *PicStore) invalidateCache(ctx context.Context) {
-	p.locker[nsImagesAll].Lock()
-	if err := p.cache.SetH(ctx, nsImagesAll, &models.Images{}, time.Millisecond); err != nil {
-		p.log.Error("failed invalidate cache", zap.Error(err))
-	}
-	p.locker[nsImagesAll].Unlock()
-
-	p.locker[nsPostsPublic].Lock()
-	if err := p.cache.SetH(ctx, nsPostsPublic, &picImages{}, time.Millisecond); err != nil {
-		p.log.Error("failed invalidate posts cache", zap.Error(err))
-	}
-	p.locker[nsPostsPublic].Unlock()
-}
-
-// UpdateImage обновляет публичность и/или теги изображения, принадлежащего пользователю.
-// После обновления инвалидирует кэш изображений.
-func (p *PicStore) UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error {
-	err := p.store.UpdateImage(ctx, userID, imageID, isPublic, tags)
+	// Пока используем getImages без фильтра по публичности, но с фильтром по пользователю
+	allImages, err := p.getImages(ctx, func(pi *PicImage) bool { return pi.UserID == userID }, false)
 	if err != nil {
-		return fmt.Errorf("failed update image: %w", err)
+		return nil, err
 	}
-	// Инвалидируем кэш изображений и публичных постов
-	p.invalidateCache(ctx)
-	// Если изменилась публичность, дополнительно инвалидируем кэш публичных постов
-	// (уже сделано в invalidateCache, но можно оставить для ясности)
-	return nil
+	return allImages, nil
 }
 
-// DeleteImage удаляет изображение, принадлежащее пользователю.
-// После удаления инвалидирует кэш изображений.
-func (p *PicStore) DeleteImage(ctx context.Context, userID uint, imageID uint) error {
-	err := p.store.DelImage(ctx, userID, imageID)
+// DecryptImage расшифровывает изображение по пути с использованием предоставленного ключа.
+// Возвращает расшифрованные данные или ошибку, если ключ неверный или изображение не зашифровано.
+func (p *PicStore) DecryptImage(ctx context.Context, path string, key string) ([]byte, error) {
+	// Получаем метаданные изображения
+	img, err := p.GetImg(ctx, path)
 	if err != nil {
-		return fmt.Errorf("failed delete image: %w", err)
+		return nil, fmt.Errorf("failed to get image: %w", err)
 	}
-	// Инвалидируем кэш изображений и публичных постов
-	p.invalidateCache(ctx)
-	return nil
+	if !img.IsEncrypted {
+		// Если изображение не зашифровано, возвращаем его данные как есть
+		return img.GetData(), nil
+	}
+	if len(img.Salt) == 0 || len(img.Nonce) == 0 {
+		return nil, fmt.Errorf("image is encrypted but missing salt or nonce")
+	}
+	// Читаем зашифрованные данные из файла
+	encryptedData, err := os.ReadFile(img.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read encrypted file: %w", err)
+	}
+	// Расшифровываем
+	plaintext, err := p.decryptFile(encryptedData, img.Nonce, img.Salt, key)
+	if err != nil {
+		return nil, fmt.Errorf("decryption failed: %w", err)
+	}
+	return plaintext, nil
 }

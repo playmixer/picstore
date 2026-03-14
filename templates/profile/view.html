@@ -1,4 +1,4 @@
-{{ define "view.html" }}
+{{ define "profile/view.html" }}
 {{ template "header.html" . }}
 <style>
     .view-container {
@@ -76,9 +76,9 @@
             <span class="nav-button disabled">← Предыдущее изображение</span>
         {{ end }}
         {{ if .tags }}
-            <a class="nav-button" href="/posts?tags={{ .tags }}">К списку (фильтр: {{ .tags }})</a>
+            <a class="nav-button" href="/i/posts?tags={{ .tags }}">К списку (фильтр: {{ .tags }})</a>
         {{ else }}
-            <a class="nav-button" href="/posts">К списку</a>
+            <a class="nav-button" href="/i/posts">К списку</a>
         {{ end }}
         {{ if .next }}
             <a class="nav-button" href="{{ .next }}">Следующее изображение →</a>
@@ -87,13 +87,14 @@
         {{ end }}
     </div>
     <div class="view-image-container">
-        {{ if .img.IsEncrypted }}
+        {{ if and .img.IsEncrypted (not .key) }}
         <div class="encrypted-placeholder" style="width: 100%; max-width: 800px; margin: 0 auto; background-color: #f0f0f0; border-radius: 8px; padding: 40px; text-align: center;">
             <div style="font-size: 64px; margin-bottom: 20px;">🔒</div>
             <h3 style="margin-bottom: 10px;">Изображение зашифровано</h3>
             <p style="color: #666; margin-bottom: 30px;">Для просмотра введите ключ шифрования</p>
-            <form method="GET" action="/view/{{ .img.Path }}" style="max-width: 400px; margin: 0 auto;">
-                <input type="hidden" name="view" value="file">
+            <form method="GET" action="/i/view/{{ .img.Path }}" style="max-width: 400px; margin: 0 auto;">
+                <!-- <input type="hidden" name="view" value="file"> -->
+                <input type="hidden" name="tags" value="{{ .tags }}">
                 <div style="margin-bottom: 15px;">
                     <input type="password" name="key" placeholder="Ключ шифрования" style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
                 </div>
@@ -102,7 +103,7 @@
             <p style="font-size: 12px; color: #999; margin-top: 20px;">Ключ хранится только у вас. Не передавайте его другим.</p>
         </div>
         {{ else }}
-        <img class="view-image" src="{{ .image }}" alt="Изображение">
+        <img class="view-image" src="/i/view/{{ .img.Path }}?view=file&key={{ .key }}" alt="Изображение">
         {{ end }}
     </div>
     <div class="view-info">
@@ -121,7 +122,7 @@
         {{ if and .user .user.ID (eq .user.ID .img.UserID) }}
         <hr style="margin: 20px 0;">
         <h3>Управление изображением</h3>
-        <form method="POST" action="/view/{{ .img.Path }}/update" style="margin-bottom: 20px;">
+        <form method="POST" action="/i/view/{{ .img.Path }}/update" style="margin-bottom: 20px;">
             <div style="margin-bottom: 10px;">
                 <label>
                     <input type="checkbox" name="is_public" {{ if .img.IsPublic }}checked{{ end }}>

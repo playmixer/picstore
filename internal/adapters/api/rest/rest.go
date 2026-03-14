@@ -33,9 +33,10 @@ var (
 )
 
 type PicStore interface {
-	UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string) (*picstore.PicImage, error)
-	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string) (*picstore.PicImage, error)
+	UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*picstore.PicImage, error)
+	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string, encryptionKey string) (*picstore.PicImage, error)
 	GetImg(ctx context.Context, path string) (*picstore.PicImage, error)
+	DecryptImage(ctx context.Context, path string, key string) ([]byte, error)
 
 	GetPosts(ctx context.Context) ([]*picstore.PicImage, error)
 	GetPostsWithTags(ctx context.Context, tags string) ([]*picstore.PicImage, error)
@@ -214,13 +215,14 @@ func (s *Server) SetupRouter() *gin.Engine {
 	r.GET("/api/tags", s.handlerTagsAutocomplete)
 	r.GET("/view/:y/:m/:d/:h/:filename", s.handlerView)
 
-	auth := r.Group("/")
+	auth := r.Group("/i")
 	auth.Use(s.authMiddleware())
 	{
-		auth.GET("/i", s.handlerProfile)
-		auth.GET("/i/upload", s.handlerUpload)
-		auth.POST("/i/upload", s.handlerUploadPost)
-		auth.GET("/i/posts", s.handlerUserPosts)
+		auth.GET("", s.handlerProfile)
+		auth.GET("/upload", s.handlerUpload)
+		auth.POST("/upload", s.handlerUploadPost)
+		auth.GET("/posts", s.handlerUserPosts)
+		auth.GET("/view/:y/:m/:d/:h/:filename", s.handlerUserView)
 		auth.POST("/view/:y/:m/:d/:h/:filename/update", s.handlerUpdateImage)
 		auth.POST("/view/:y/:m/:d/:h/:filename/delete", s.handlerDeleteImage)
 	}

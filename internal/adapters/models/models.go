@@ -61,12 +61,15 @@ type ImageTag struct {
 
 type Image struct {
 	gorm.Model
-	Path     string
-	UserID   uint
-	User     User
-	IsPublic bool
-	Tags     string // денормализованное поле, можно удалить позже
-	TagsRel  []Tag  `gorm:"many2many:image_tags;"`
+	Path        string
+	UserID      uint
+	User        User
+	IsPublic    bool
+	IsEncrypted bool   `gorm:"default:false"`
+	Salt        []byte `gorm:"type:bytea"` // соль для вывода ключа из пароля
+	Nonce       []byte `gorm:"type:bytea"` // nonce для AES-GCM
+	Tags        string // денормализованное поле, можно удалить позже
+	TagsRel     []Tag  `gorm:"many2many:image_tags;"`
 }
 
 type Images []*Image

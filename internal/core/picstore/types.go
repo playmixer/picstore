@@ -10,16 +10,19 @@ import (
 )
 
 type PicImage struct {
-	ID        uint
-	Filename  string
-	Path      string // полный путь хранения
-	Extension string
-	IsPublic  bool
-	UserID    uint
-	Tags      string
-	Data      []byte    `json:"-"`
-	Next      *PicImage `json:"-"`
-	Prev      *PicImage `json:"-"`
+	ID          uint
+	Filename    string
+	Path        string // полный путь хранения
+	Extension   string
+	IsPublic    bool
+	UserID      uint
+	Tags        string
+	IsEncrypted bool      `json:"-"`
+	Salt        []byte    `json:"-"`
+	Nonce       []byte    `json:"-"`
+	Data        []byte    `json:"-"`
+	Next        *PicImage `json:"-"`
+	Prev        *PicImage `json:"-"`
 }
 
 type picImages []*PicImage
