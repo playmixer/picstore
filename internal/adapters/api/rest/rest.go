@@ -10,6 +10,7 @@ import (
 	"picstore/internal/adapters/models"
 	"picstore/internal/adapters/storage/types"
 	"picstore/internal/core/picstore"
+	"strings"
 	"text/template"
 	"time"
 
@@ -177,6 +178,7 @@ func (s *Server) SetupRouter() *gin.Engine {
 		"genNumbers": genNumbers,
 		"afterI":     afterI,
 		"beforeI":    beforeI,
+		"split":      strings.Split,
 	})
 	r.LoadHTMLGlob("templates/**/*")
 	r.Static("/css", "./static/css")

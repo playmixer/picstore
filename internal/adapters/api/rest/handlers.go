@@ -265,6 +265,7 @@ func (s *Server) handlerView(c *gin.Context) {
 	c.HTML(http.StatusOK, "view.html", gin.H{
 		"user":  user,
 		"image": fmt.Sprintf("/image/%s/%s/%s/%s/%s", year, month, day, hour, filename),
+		"img":   img,
 		"prev":  prev,
 		"next":  next,
 	})

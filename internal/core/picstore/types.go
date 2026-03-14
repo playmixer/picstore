@@ -17,9 +17,9 @@ type PicImage struct {
 	IsPublic  bool
 	UserID    uint
 	Tags      string
-	Data      []byte
-	Next      *PicImage
-	Prev      *PicImage
+	Data      []byte    `json:"-"`
+	Next      *PicImage `json:"-"`
+	Prev      *PicImage `json:"-"`
 }
 
 type picImages []*PicImage
@@ -29,7 +29,26 @@ func (p picImages) MarshalBinary() ([]byte, error) {
 }
 
 func (p *picImages) UnmarshalBinary(data []byte) error {
-	return json.Unmarshal(data, p)
+	if err := json.Unmarshal(data, p); err != nil {
+		return err
+	}
+	p.RestoreLinks()
+	return nil
+}
+
+func (p *picImages) RestoreLinks() {
+	for i := range *p {
+		if i > 0 {
+			(*p)[i].Prev = (*p)[i-1]
+		} else {
+			(*p)[i].Prev = nil
+		}
+		if i < len(*p)-1 {
+			(*p)[i].Next = (*p)[i+1]
+		} else {
+			(*p)[i].Next = nil
+		}
+	}
 }
 
 func (p *PicImage) GetData() []byte {

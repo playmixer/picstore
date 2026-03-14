@@ -1,14 +1,102 @@
 {{ define "view.html" }}
 {{ template "header.html" . }}
-{{ if .prev }}
-<a href="{{ .prev }}">Предыдущий</a>
-{{ end }}
-{{ if .next }}
-<a href="{{ .next }}">Следующий</a>
-{{ end }}
-
-
-<img src="{{ .image }}" alt="">
-
+<style>
+    .view-container {
+        max-width: 1200px;
+        margin: 20px auto;
+        padding: 20px;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .view-navigation {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .nav-button {
+        display: inline-block;
+        padding: 10px 20px;
+        background-color: #6666ff;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+        font-size: 16px;
+        transition: background-color 0.3s;
+    }
+    .nav-button:hover {
+        background-color: #5555dd;
+    }
+    .nav-button.disabled {
+        background-color: #cccccc;
+        pointer-events: none;
+        cursor: default;
+    }
+    .view-image-container {
+        text-align: center;
+        margin: 20px 0;
+    }
+    .view-image {
+        max-width: 100%;
+        max-height: 80vh;
+        border-radius: 4px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .view-info {
+        margin-top: 20px;
+        padding: 15px;
+        background-color: #f9f9f9;
+        border-radius: 4px;
+        font-size: 14px;
+        color: #555;
+    }
+    .view-info p {
+        margin: 5px 0;
+    }
+    .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 10px;
+    }
+    .tag {
+        background-color: #e0e0ff;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        color: #333;
+    }
+</style>
+<div class="view-container">
+    <div class="view-navigation">
+        {{ if .prev }}
+            <a class="nav-button" href="{{ .prev }}">← Предыдущее изображение</a>
+        {{ else }}
+            <span class="nav-button disabled">← Предыдущее изображение</span>
+        {{ end }}
+        <a class="nav-button" href="/posts">К списку</a>
+        {{ if .next }}
+            <a class="nav-button" href="{{ .next }}">Следующее изображение →</a>
+        {{ else }}
+            <span class="nav-button disabled">Следующее изображение →</span>
+        {{ end }}
+    </div>
+    <div class="view-image-container">
+        <img class="view-image" src="{{ .image }}" alt="Изображение">
+    </div>
+    <div class="view-info">
+        <p><strong>ID:</strong> {{ .img.ID }}</p>
+        <p><strong>Путь:</strong> {{ .img.Path }}</p>
+        {{ if .img.Tags }}
+        <p><strong>Теги:</strong></p>
+        <div class="tags">
+            {{ range split .img.Tags " " }}
+                <span class="tag">{{ . }}</span>
+            {{ end }}
+        </div>
+        {{ end }}
+    </div>
+</div>
 {{ template "footer.html" . }}
 {{ end }}

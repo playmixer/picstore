@@ -194,9 +194,7 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool) (
 	}
 	p.locker[nsImagesAll].Unlock()
 
-	posts := make([]*PicImage, 0)
-
-	var prev PicImage
+	filtered := make([]*PicImage, 0)
 	for _, line := range data {
 		image := &PicImage{
 			ID:        line.ID,
@@ -207,23 +205,21 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool) (
 			Tags:      tagsFromImage(line),
 		}
 		if filter(image) {
-			if len(posts)-1 > 0 {
-				prev = *posts[len(posts)-2]
-				prev.Next = nil
-				prev.Prev = nil
-				image.Prev = &prev
-			}
-			if len(posts)-1 >= 0 {
-				next := *image
-				next.Prev = nil
-				next.Next = nil
-				posts[len(posts)-1].Next = &next
-			}
-			posts = append(posts, image)
+			filtered = append(filtered, image)
 		}
 	}
 
-	return posts, nil
+	// Установка связей Prev и Next
+	for i := range filtered {
+		if i > 0 {
+			filtered[i].Prev = filtered[i-1]
+		}
+		if i < len(filtered)-1 {
+			filtered[i].Next = filtered[i+1]
+		}
+	}
+
+	return filtered, nil
 }
 
 func (p *PicStore) GetPosts(ctx context.Context) ([]*PicImage, error) {
