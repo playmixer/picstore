@@ -604,8 +604,8 @@ func (p *PicStore) DecryptImage(ctx context.Context, path string, key string) ([
 		// Если изображение не зашифровано, возвращаем его данные как есть
 		return img.GetData(), nil
 	}
-	if len(img.Salt) == 0 || len(img.Nonce) == 0 {
-		return nil, fmt.Errorf("image is encrypted but missing salt or nonce")
+	if len(img.Nonce) == 0 {
+		return nil, fmt.Errorf("image is encrypted but missing nonce")
 	}
 	// Читаем зашифрованные данные из файла
 	encryptedData, err := os.ReadFile(img.Path)

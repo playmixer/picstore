@@ -561,6 +561,7 @@ func (s *Server) handlerUserView(c *gin.Context) {
 		if img.IsEncrypted && key != "" {
 			decryptedData, err := s.pic.DecryptImage(c.Request.Context(), path, key)
 			if err != nil {
+				s.log.Debug("failed decrypt file", zap.Error(err))
 				c.HTML(http.StatusForbidden, "error.html", gin.H{
 					"error": "Неверный ключ или не удалось расшифровать",
 					"user":  user,

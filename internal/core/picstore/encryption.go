@@ -7,14 +7,11 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-
-	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
 	aesKeySize   = 32 // AES-256
 	gcmNonceSize = 12 // recommended nonce size for GCM
-	saltSize     = 16 // размер соли для PBKDF2
 )
 
 // generateRandomBytes генерирует случайные байты заданного размера.
@@ -26,9 +23,10 @@ func generateRandomBytes(size int) ([]byte, error) {
 	return buf, nil
 }
 
-// deriveKeyFromPassword создаёт ключ AES из пароля и соли с помощью PBKDF2.
-func deriveKeyFromPassword(password string, salt []byte) []byte {
-	return pbkdf2.Key([]byte(password), salt, 10000, aesKeySize, sha256.New)
+// deriveKeyFromPassword создаёт ключ AES из пароля с помощью SHA-256.
+func deriveKeyFromPassword(password string) []byte {
+	hash := sha256.Sum256([]byte(password))
+	return hash[:]
 }
 
 // encryptData encrypts plaintext using AES-GCM with the provided key.
@@ -72,22 +70,17 @@ func decryptData(ciphertext, key, nonce []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// EncryptFile encrypts file data using a user-provided password.
+// encryptFile encrypts file data using a user-provided password.
 // Returns encrypted data, nonce, salt, and error.
+// Salt is kept as nil for compatibility.
 func (p *PicStore) encryptFile(data []byte, password string) (encryptedData, nonce, salt []byte, err error) {
 	if password == "" || !p.cfg.EnableEncryption {
 		// encryption disabled or no password, return original data with empty metadata
 		return data, nil, nil, nil
 	}
 
-	// Generate random salt
-	salt, err = generateRandomBytes(saltSize)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to generate salt: %w", err)
-	}
-
-	// Derive key from password and salt
-	key := deriveKeyFromPassword(password, salt)
+	// Derive key from password using SHA-256
+	key := deriveKeyFromPassword(password)
 
 	// Encrypt data with derived key
 	encryptedData, nonce, err = encryptData(data, key)
@@ -95,18 +88,20 @@ func (p *PicStore) encryptFile(data []byte, password string) (encryptedData, non
 		return nil, nil, nil, fmt.Errorf("failed to encrypt data: %w", err)
 	}
 
-	return encryptedData, nonce, salt, nil
+	// Return nil salt for compatibility
+	return encryptedData, nonce, nil, nil
 }
 
-// DecryptFile decrypts file data using stored salt, nonce and user-provided password.
+// decryptFile decrypts file data using stored salt, nonce and user-provided password.
+// Salt is ignored in this simplified version.
 func (p *PicStore) decryptFile(encryptedData, fileNonce, salt []byte, password string) ([]byte, error) {
-	if password == "" || !p.cfg.EnableEncryption || len(salt) == 0 {
+	if password == "" || !p.cfg.EnableEncryption {
 		// not encrypted, return as is
 		return encryptedData, nil
 	}
 
-	// Derive key from password and salt
-	key := deriveKeyFromPassword(password, salt)
+	// Derive key from password using SHA-256
+	key := deriveKeyFromPassword(password)
 
 	// Decrypt data
 	plaintext, err := decryptData(encryptedData, key, fileNonce)
