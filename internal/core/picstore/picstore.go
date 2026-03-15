@@ -25,6 +25,7 @@ const (
 
 	nsImagesAll   string = "images:all"
 	nsPostsPublic string = "posts:public"
+	workerCount   int    = 3
 )
 
 type cache interface {
@@ -38,6 +39,7 @@ type cache interface {
 type store interface {
 	NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error)
 	DelImage(ctx context.Context, userID uint, imageID uint) error
+	DelImages(ctx context.Context, userID uint, imageIDs []uint) error
 	GetImage(ctx context.Context, path string) (*models.Image, error)
 	GetImages(ctx context.Context) ([]*models.Image, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
@@ -57,6 +59,7 @@ type self interface {
 	GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	DeleteImage(ctx context.Context, userID uint, imageID uint) error
+	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
 }
 
 type PicStore struct {
@@ -66,13 +69,18 @@ type PicStore struct {
 	cfg         Config
 	picturePath string
 	locker      map[string]*sync.Mutex
+	taskQueue   chan func() error
+	wg          sync.WaitGroup
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 var (
 	_ self = &PicStore{}
 )
 
-func New(cfg Config, log *logger.Logger, store store, cache cache) (*PicStore, error) {
+func New(ctx context.Context, cfg Config, log *logger.Logger, store store, cache cache) (*PicStore, error) {
+	ctx, cancel := context.WithCancel(ctx)
 	p := &PicStore{
 		store:       store,
 		log:         log,
@@ -83,9 +91,43 @@ func New(cfg Config, log *logger.Logger, store store, cache cache) (*PicStore, e
 			nsImagesAll:   &sync.Mutex{},
 			nsPostsPublic: &sync.Mutex{},
 		},
+		taskQueue: make(chan func() error, 1000),
+		ctx:       ctx,
+		cancel:    cancel,
 	}
-
+	// Запускаем воркеры
+	for i := 0; i < workerCount; i++ {
+		p.wg.Add(1)
+		go p.worker(i)
+	}
 	return p, nil
+}
+
+func (p *PicStore) worker(id int) {
+	defer p.wg.Done()
+	for {
+		select {
+		case task := <-p.taskQueue:
+			if err := task(); err != nil {
+				p.log.Warn("worker task failed",
+					zap.Int("worker", id),
+					zap.Error(err))
+			} else {
+				p.log.Debug("worker task completed",
+					zap.Int("worker", id))
+			}
+		case <-p.ctx.Done():
+			p.log.Debug("worker stopping", zap.Int("worker", id))
+			return
+		}
+	}
+}
+
+// Stop останавливает воркеры и освобождает ресурсы.
+func (p *PicStore) Stop() {
+	p.cancel()
+	p.wg.Wait()
+	close(p.taskQueue)
 }
 
 func (p *PicStore) UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*PicImage, error) {
@@ -447,11 +489,78 @@ func (p *PicStore) UpdateImage(ctx context.Context, userID uint, imageID uint, i
 
 // DeleteImage удаляет изображение
 func (p *PicStore) DeleteImage(ctx context.Context, userID uint, imageID uint) error {
-	// Сначала получим изображение, чтобы узнать путь к файлу
-	// (пока просто удаляем из хранилища, файл останется - нужно доработать)
-	err := p.store.DelImage(ctx, userID, imageID)
+	// Получаем изображение, чтобы узнать путь к файлу
+	images, err := p.GetUserPosts(ctx, userID)
 	if err != nil {
 		return err
+	}
+	var target *PicImage
+	for _, img := range images {
+		if img.ID == imageID {
+			target = img
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("image not found or access denied")
+	}
+	// Удаляем запись из хранилища
+	err = p.store.DelImage(ctx, userID, imageID)
+	if err != nil {
+		return err
+	}
+	// Отправляем задачу на удаление файла в очередь
+	fullPath := filepath.Join(p.picturePath, target.Path)
+	task := func() error {
+		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to delete image file %s: %w", fullPath, err)
+		}
+		return nil
+	}
+	select {
+	case p.taskQueue <- task:
+		p.log.Debug("file deletion queued", zap.String("path", fullPath))
+	default:
+		p.log.Warn("task queue full, file not queued", zap.String("path", fullPath))
+	}
+	p.invalidateCache(ctx)
+	return nil
+}
+
+// DeleteImages удаляет несколько изображений
+func (p *PicStore) DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error {
+	// Получаем все изображения пользователя
+	images, err := p.GetUserPosts(ctx, userID)
+	if err != nil {
+		return err
+	}
+	// Создаем множество ID для быстрой проверки
+	idSet := make(map[uint]bool)
+	for _, id := range imageIDs {
+		idSet[id] = true
+	}
+	// Удаляем записи из хранилища
+	err = p.store.DelImages(ctx, userID, imageIDs)
+	if err != nil {
+		return err
+	}
+	// Отправляем задачи на удаление файлов в очередь
+	for _, img := range images {
+		if idSet[img.ID] {
+			fullPath := filepath.Join(p.picturePath, img.Path)
+			task := func() error {
+				if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("failed to delete image file %s: %w", fullPath, err)
+				}
+				return nil
+			}
+			select {
+			case p.taskQueue <- task:
+				p.log.Debug("file deletion queued", zap.String("path", fullPath))
+			default:
+				p.log.Warn("task queue full, file not queued", zap.String("path", fullPath))
+			}
+		}
 	}
 	p.invalidateCache(ctx)
 	return nil

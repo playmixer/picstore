@@ -284,6 +284,32 @@ func (s *Storage) DelImage(ctx context.Context, userID uint, imageID uint) error
 	return nil
 }
 
+// DelImages удаляет несколько изображений по IDs, принадлежащих указанному пользователю.
+func (s *Storage) DelImages(ctx context.Context, userID uint, imageIDs []uint) error {
+	if len(imageIDs) == 0 {
+		return nil
+	}
+	// Проверяем, что все изображения принадлежат пользователю и существуют
+	var count int64
+	err := s.db.WithContext(ctx).Model(&models.Image{}).Where("id IN ? AND user_id = ?", imageIDs, userID).Count(&count).Error
+	if err != nil {
+		return fmt.Errorf("failed count images: %w", err)
+	}
+	if int(count) != len(imageIDs) {
+		return apperror.ErrNotFoundData
+	}
+	// Удаляем связи с тегами
+	if err := s.db.WithContext(ctx).Where("image_id IN ?", imageIDs).Delete(&models.ImageTag{}).Error; err != nil {
+		return fmt.Errorf("failed delete image tags: %w", err)
+	}
+	// Удаляем сами изображения
+	if err := s.db.WithContext(ctx).Where("id IN ?", imageIDs).Delete(&models.Image{}).Error; err != nil {
+		return fmt.Errorf("failed delete images: %w", err)
+	}
+	// TODO: удалить физические файлы
+	return nil
+}
+
 // UpdateImage обновляет публичность и/или теги изображения.
 // Если isPublic == nil, поле не обновляется. Если tags == nil, теги не меняются.
 func (s *Storage) UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error {

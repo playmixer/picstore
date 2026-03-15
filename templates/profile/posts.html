@@ -140,6 +140,55 @@
             width: 100%;
         }
     }
+    /* Стили для режима выделения */
+    .image-box-wrapper {
+        position: relative;
+    }
+    .image-checkbox {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 10;
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+    }
+    .selection-controls .btn {
+        padding: 10px 20px;
+        margin: 0 10px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.3s;
+    }
+    .btn-secondary {
+        background-color: #6c757d;
+        color: white;
+    }
+    .btn-secondary:hover {
+        background-color: #5a6268;
+    }
+    .btn-danger {
+        background-color: #dc3545;
+        color: white;
+    }
+    .btn-danger:hover {
+        background-color: #c82333;
+    }
+    .btn-danger:disabled {
+        background-color: #e0a0a0;
+        cursor: not-allowed;
+    }
+    .btn-outline-secondary {
+        background-color: transparent;
+        color: #6c757d;
+        border: 1px solid #6c757d;
+    }
+    .btn-outline-secondary:hover {
+        background-color: #6c757d;
+        color: white;
+    }
 </style>
 
 {{ template "modules/sidebar.html" . }}
@@ -156,21 +205,29 @@
         </form>
         <div id="autocomplete" class="autocomplete-suggestions" style="display:none;"></div>
     </div>
+    <div class="selection-controls" style="margin: 20px auto; text-align: center; display: none;">
+        <button id="selectModeBtn" class="btn btn-secondary">Включить режим выделения</button>
+        <button id="deleteSelectedBtn" class="btn btn-danger" disabled>Удалить выделенные</button>
+        <button id="cancelSelectionBtn" class="btn btn-outline-secondary" style="display:none;">Отменить выделение</button>
+    </div>
     <div class="container">
     {{ range .posts }}
-        <div class="image-box">
-            <a href="/i/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}">
-                {{ if .IsEncrypted }}
-                <div class="encrypted-placeholder" data-encrypted="true" data-path="{{ .Path }}">
-                    <div>
-                        <div style="font-size: 48px;">👁️‍🗨️</div>
-                        <div style="font-size: 14px; color: #666; margin-top: 8px;">Скрыто</div>
+        <div class="image-box-wrapper">
+            <div class="image-box">
+                <input type="checkbox" class="image-checkbox" data-image-id="{{ .ID }}" style="display: none;">
+                <a href="/i/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}">
+                    {{ if .IsEncrypted }}
+                    <div class="encrypted-placeholder" data-encrypted="true" data-path="{{ .Path }}">
+                        <div>
+                            <div style="font-size: 48px;">👁️‍🗨️</div>
+                            <div style="font-size: 14px; color: #666; margin-top: 8px;">Скрыто</div>
+                        </div>
                     </div>
-                </div>
-                {{ else }}
-                <img src="/image/{{ .Path }}" alt="{{ .Path }}">
-                {{ end }}
-            </a>
+                    {{ else }}
+                    <img src="/image/{{ .Path }}" alt="{{ .Path }}">
+                    {{ end }}
+                </a>
+            </div>
         </div>
     {{ end }}
     </div>
@@ -290,6 +347,134 @@
         if (parent) {
             parent.replaceChild(img, placeholder);
         }
+    });
+})();
+</script>
+<script>
+(function() {
+    const selectModeBtn = document.getElementById('selectModeBtn');
+    const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+    const cancelSelectionBtn = document.getElementById('cancelSelectionBtn');
+    const selectionControls = document.querySelector('.selection-controls');
+    const checkboxes = document.querySelectorAll('.image-checkbox');
+    const imageBoxes = document.querySelectorAll('.image-box');
+
+    let selectionMode = false;
+
+    // Показать панель управления выделением
+    selectionControls.style.display = 'block';
+
+    // Включение режима выделения
+    selectModeBtn.addEventListener('click', function() {
+        selectionMode = true;
+        selectModeBtn.style.display = 'none';
+        cancelSelectionBtn.style.display = 'inline-block';
+        deleteSelectedBtn.disabled = true;
+
+        // Показать чекбоксы
+        checkboxes.forEach(cb => {
+            cb.style.display = 'block';
+        });
+
+        // Добавить обработчик клика по изображению для выделения
+        imageBoxes.forEach(box => {
+            box.style.cursor = 'pointer';
+            box.addEventListener('click', handleImageClick);
+        });
+    });
+
+    // Отмена выделения
+    cancelSelectionBtn.addEventListener('click', function() {
+        selectionMode = false;
+        selectModeBtn.style.display = 'inline-block';
+        cancelSelectionBtn.style.display = 'none';
+        deleteSelectedBtn.disabled = true;
+
+        // Скрыть чекбоксы и снять выделение
+        checkboxes.forEach(cb => {
+            cb.style.display = 'none';
+            cb.checked = false;
+        });
+
+        // Убрать обработчики
+        imageBoxes.forEach(box => {
+            box.style.cursor = '';
+            box.removeEventListener('click', handleImageClick);
+        });
+
+        // Снять визуальное выделение
+        imageBoxes.forEach(box => {
+            box.style.boxShadow = '';
+        });
+    });
+
+    // Обработчик клика по изображению
+    function handleImageClick(e) {
+        const checkbox = this.querySelector('.image-checkbox');
+        if (!checkbox) return;
+        checkbox.checked = !checkbox.checked;
+        updateSelectionUI(this, checkbox.checked);
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    // Обновление UI при изменении состояния чекбокса
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', function() {
+            const box = this.closest('.image-box');
+            updateSelectionUI(box, this.checked);
+        });
+    });
+
+    function updateSelectionUI(box, checked) {
+        if (checked) {
+            box.style.boxShadow = '0 0 0 3px #007bff';
+        } else {
+            box.style.boxShadow = '';
+        }
+        updateDeleteButton();
+    }
+
+    function updateDeleteButton() {
+        const selected = Array.from(checkboxes).filter(cb => cb.checked);
+        deleteSelectedBtn.disabled = selected.length === 0;
+    }
+
+    // Удаление выбранных изображений
+    deleteSelectedBtn.addEventListener('click', function() {
+        const selectedIds = Array.from(checkboxes)
+            .filter(cb => cb.checked)
+            .map(cb => parseInt(cb.getAttribute('data-image-id')));
+        
+        if (selectedIds.length === 0) return;
+
+        if (!confirm(`Удалить ${selectedIds.length} изображений?`)) {
+            return;
+        }
+
+        fetch('/i/posts/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ image_ids: selectedIds }),
+        })
+        .then(response => {
+            if (response.ok) {
+                return response.json();
+            } else {
+                throw new Error('Ошибка удаления');
+            }
+        })
+        .then(data => {
+            alert('Изображения успешно удалены');
+            // Перезагружаем страницу для обновления списка
+            window.location.reload();
+        })
+        .catch(err => {
+            console.error('Ошибка:', err);
+            alert('Не удалось удалить изображения');
+        });
     });
 })();
 </script>

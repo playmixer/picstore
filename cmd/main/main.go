@@ -55,7 +55,7 @@ func run() error {
 		return fmt.Errorf("failed initialize cache: %w", err)
 	}
 
-	pic, err := picstore.New(cfg.Pic, lgr, store, cache)
+	pic, err := picstore.New(ctx, cfg.Pic, lgr, store, cache)
 	if err != nil {
 		return fmt.Errorf("failed initialize core picstore: %w", err)
 	}

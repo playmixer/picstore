@@ -28,6 +28,7 @@ type Storage interface {
 
 	NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error)
 	DelImage(ctx context.Context, userID uint, imageID uint) error
+	DelImages(ctx context.Context, userID uint, imageIDs []uint) error
 	GetImage(ctx context.Context, path string) (*models.Image, error)
 	GetImages(ctx context.Context) ([]*models.Image, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error

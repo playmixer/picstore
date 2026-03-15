@@ -776,3 +776,35 @@ func (s *Server) handlerDeleteImage(c *gin.Context) {
 	// После удаления перенаправляем на список постов пользователя
 	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/posts?info=%s", url.QueryEscape("изображение удалено")))
 }
+
+// POST /i/posts/delete - массовое удаление изображений
+func (s *Server) handlerDeleteImages(c *gin.Context) {
+	user := s.getUser(c)
+	if user.ID == 0 {
+		c.Redirect(http.StatusSeeOther, "/sso/auth")
+		return
+	}
+
+	var req struct {
+		ImageIDs []uint `json:"image_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		s.log.Error("failed bind json", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат запроса"})
+		return
+	}
+
+	if len(req.ImageIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "список изображений пуст"})
+		return
+	}
+
+	err := s.pic.DeleteImages(c.Request.Context(), user.ID, req.ImageIDs)
+	if err != nil {
+		s.log.Error("failed delete images", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "не удалось удалить изображения"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "изображения удалены"})
+}

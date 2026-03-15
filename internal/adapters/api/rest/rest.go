@@ -47,6 +47,7 @@ type PicStore interface {
 	GetUserPosts(ctx context.Context, userID uint) ([]*picstore.PicImage, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	DeleteImage(ctx context.Context, userID uint, imageID uint) error
+	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
 }
 
 type Cache interface {
@@ -230,6 +231,7 @@ func (s *Server) SetupRouter() *gin.Engine {
 			publisher.GET("/upload", s.handlerUpload)
 			publisher.POST("/upload", s.handlerUploadPost)
 			publisher.GET("/posts", s.handlerUserPosts)
+			publisher.POST("/posts/delete", s.handlerDeleteImages)
 			publisher.POST("/view/:y/:m/:d/:h/:filename/update", s.handlerUpdateImage)
 			publisher.POST("/view/:y/:m/:d/:h/:filename/delete", s.handlerDeleteImage)
 		}
