@@ -6,7 +6,7 @@ type stringList string
 
 // Config конфигурация REST сервиса.
 type Config struct {
-	Addr           string     `env:"SERVER_ADDRESS envDefault:":8080"`
+	Addr           string     `env:"SERVER_ADDRESS" envDefault:":8080"`
 	BaseURL        string     `env:"SERVER_BASEURL"`
 	CookieDomain   stringList `env:"COOKIE_DOMAIN" envDefault:"localhost"`
 	CookieSecure   bool       `env:"COOKIE_SECURE" envDefault:"false"`

@@ -25,9 +25,11 @@ services:
       PIC_PATH: ${PIC_PATH}
       SSO_AUTH_URL: ${SSO_AUTH_URL}
       SSO_AUTH_CERT_FILE: ${SSO_AUTH_CERT_FILE}
+      ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      - ./certs:/app/certs
     ports:
       - 8080:8080
     networks:
