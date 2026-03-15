@@ -32,6 +32,17 @@ img {
     max-width: 100%;
     height: auto;
 }
+/* Убираем закругления у всех элементов */
+button, input, textarea, select, fieldset, legend, pre,
+code, blockquote, img, a, div, section, article, header,
+footer, nav, aside, figure, figcaption, table, th, td,
+.nav-button {
+    border-radius: 0 !important;
+}
+
+input[type="text"] {
+    box-sizing: border-box;
+}
 
 /* Медиа-запросы для мобильных устройств */
 @media (max-width: 768px) {
