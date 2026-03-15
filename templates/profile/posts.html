@@ -206,9 +206,10 @@
         <div id="autocomplete" class="autocomplete-suggestions" style="display:none;"></div>
     </div>
     <div class="selection-controls" style="margin: 20px auto; text-align: center; display: none;">
-        <button id="selectModeBtn" class="btn btn-secondary">Включить режим выделения</button>
-        <button id="deleteSelectedBtn" class="btn btn-danger" disabled>Удалить выделенные</button>
-        <button id="cancelSelectionBtn" class="btn btn-outline-secondary" style="display:none;">Отменить выделение</button>
+        <button id="selectModeBtn" class="btn btn-secondary">Включить режим выбора</button>
+        <button id="selectAllBtn" class="btn btn-outline-secondary" style="display:none;">Выбрать все</button>
+        <button id="deleteSelectedBtn" class="btn btn-danger" disabled>Удалить выбранное</button>
+        <button id="cancelSelectionBtn" class="btn btn-outline-secondary" style="display:none;">Отменить режим выбора</button>
     </div>
     <div class="container">
     {{ range .posts }}
@@ -353,6 +354,7 @@
 <script>
 (function() {
     const selectModeBtn = document.getElementById('selectModeBtn');
+    const selectAllBtn = document.getElementById('selectAllBtn');
     const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
     const cancelSelectionBtn = document.getElementById('cancelSelectionBtn');
     const selectionControls = document.querySelector('.selection-controls');
@@ -368,6 +370,7 @@
     selectModeBtn.addEventListener('click', function() {
         selectionMode = true;
         selectModeBtn.style.display = 'none';
+        selectAllBtn.style.display = 'inline-block';
         cancelSelectionBtn.style.display = 'inline-block';
         deleteSelectedBtn.disabled = true;
 
@@ -387,6 +390,7 @@
     cancelSelectionBtn.addEventListener('click', function() {
         selectionMode = false;
         selectModeBtn.style.display = 'inline-block';
+        selectAllBtn.style.display = 'none';
         cancelSelectionBtn.style.display = 'none';
         deleteSelectedBtn.disabled = true;
 
@@ -439,6 +443,16 @@
         const selected = Array.from(checkboxes).filter(cb => cb.checked);
         deleteSelectedBtn.disabled = selected.length === 0;
     }
+
+    // Выбрать все изображения
+    selectAllBtn.addEventListener('click', function() {
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+        checkboxes.forEach(cb => {
+            cb.checked = !allChecked;
+            // Триггерим событие change для обновления UI
+            cb.dispatchEvent(new Event('change'));
+        });
+    });
 
     // Удаление выбранных изображений
     deleteSelectedBtn.addEventListener('click', function() {
