@@ -7,19 +7,23 @@
         <span class="hamburger"></span>
     </button>
     <div class="nav-links" id="nav-menu">
-        <a href="/">Главная</a>
-        <a href="/about">О нас</a>
-        <a href="/posts">Посты</a>
-        {{ if eq .user.ID 0 }}
-        <a class="login-button" href="/sso/auth">Вход</a>
-        {{ else }}
-        {{ if .user.IsPublisher }}
-        <a href="/i/upload">Загрузить</a>
-        <a href="/i/posts">Мои посты</a>
-        {{ end }}
-        <a class="logout-button" href="/sso/logout">Выход</a>
-        <a class="user-info" href="/i">Ваш email: {{ .user.Email }}</a>
-        {{ end }}
+        <div class="nav-left">
+            <a href="/">Главная</a>
+            <a href="/about">О нас</a>
+            <a href="/posts">Посты</a>
+            {{ if and (ne .user.ID 0) (.user.IsPublisher) }}
+            <a href="/i/upload">Загрузить</a>
+            <a href="/i/posts">Мои посты</a>
+            {{ end }}
+        </div>
+        <div class="nav-right">
+            {{ if eq .user.ID 0 }}
+            <a class="login-button" href="/sso/auth">Вход</a>
+            {{ else }}
+            <a class="user-info" href="/i">Ваш email: {{ .user.Email }}</a>
+            <a class="logout-button" href="/sso/logout">Выход</a>
+            {{ end }}
+        </div>
     </div>
 </nav>
 <script src="/js/navigate.js" defer></script>
