@@ -92,14 +92,14 @@
     </div>
     <div class="view-image-container">
         {{ if not (and .img.IsEncrypted (not .key)) }}
-        <img class="view-image" src="/i/view/{{ .img.Path }}?view=file&key={{ .key }}" alt="Изображение">
+        <img class="view-image" id="view" src="/i/view/{{ .img.Path }}?view=file&key={{ .key }}" alt="Изображение">
         {{ end }}
         {{ if .img.IsEncrypted }}
         <div class="encrypted-placeholder" style="width: 100%; max-width: 800px; margin: 0 auto; background-color: #f0f0f0; border-radius: 8px; padding: 40px; text-align: center;">
             <div style="font-size: 64px; margin-bottom: 20px;">🔒</div>
             <h3 style="margin-bottom: 10px;">Изображение зашифровано</h3>
             <p style="color: #666; margin-bottom: 30px;">Для просмотра введите ключ шифрования</p>
-            <form method="GET" action="/i/view/{{ .img.Path }}" style="max-width: 400px; margin: 0 auto;">
+            <form method="GET" action="/i/view/{{ .img.Path }}#view" style="max-width: 400px; margin: 0 auto;">
                 <input type="hidden" name="tags" value="{{ .tags }}">
                 <div style="margin-bottom: 15px;">
                     <input type="password" name="key" placeholder="Ключ шифрования" style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">

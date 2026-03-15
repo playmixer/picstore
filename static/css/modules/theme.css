@@ -1,0 +1,230 @@
+/* Стили для переключателя темы */
+.theme-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 24px;
+    padding: 10px 14px;
+    color: white;
+    transition: transform 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 10px;
+}
+
+.theme-toggle:hover {
+    transform: scale(1.1);
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Темная тема */
+body.dark-theme {
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+body.dark-theme nav {
+    background-color: #1e1e1e;
+}
+
+body.dark-theme nav a {
+    color: #e0e0e0;
+}
+
+body.dark-theme nav a:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-theme .user-info {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #e0e0e0;
+}
+
+body.dark-theme .login-button,
+body.dark-theme .logout-button {
+    color: #e0e0e0;
+}
+
+body.dark-theme .nav-toggle {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: #e0e0e0;
+}
+
+body.dark-theme .hamburger {
+    background-color: #e0e0e0;
+}
+
+/* Дополнительные стили для контента */
+body.dark-theme main {
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+body.dark-theme h1,
+body.dark-theme h2,
+body.dark-theme h3,
+body.dark-theme h4,
+body.dark-theme h5,
+body.dark-theme h6 {
+    color: #bb86fc;
+}
+
+body.dark-theme a {
+    color: #82b1ff;
+}
+
+body.dark-theme a:hover {
+    color: #448aff;
+}
+
+body.dark-theme .error {
+    color: #cf6679;
+}
+
+body.dark-theme .info {
+    color: #03dac6;
+}
+
+/* Адаптация для мобильных */
+@media (max-width: 768px) {
+    .theme-toggle {
+        font-size: 20px;
+        padding: 8px 12px;
+        margin-left: 0;
+        order: -1;
+    }
+}
+/* Стили для view-container в темной теме */
+body.dark-theme .view-container {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-theme .view-info {
+    background-color: #2d2d2d;
+    color: #cccccc;
+}
+
+body.dark-theme .view-info p {
+    color: #cccccc;
+}
+
+body.dark-theme .tag {
+    background-color: #3a3a3a;
+    color: #bb86fc;
+}
+
+body.dark-theme .nav-button {
+    background-color: #6666ff;
+    color: white;
+}
+
+body.dark-theme .nav-button:hover {
+    background-color: #5555dd;
+}
+
+body.dark-theme .nav-button.disabled {
+    background-color: #555555;
+    color: #aaaaaa;
+}
+
+/* Стили для image-box в темной теме */
+body.dark-theme .image-box {
+    background-color: #2d2d2d;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-theme .image-box:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+}
+
+body.dark-theme .encrypted-placeholder {
+    background-color: #3a3a3a;
+    color: #e0e0e0;
+}
+
+body.dark-theme .encrypted-placeholder p {
+    color: #b0b0b0;
+}
+
+/* Стили для футера в темной теме */
+body.dark-theme footer {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+}
+
+body.dark-theme footer p {
+    color: #e0e0e0;
+}
+
+body.dark-theme footer a {
+    color: #82b1ff;
+}
+
+body.dark-theme footer a:hover {
+    color: #448aff;
+}
+
+/* Стили для search-form в темной теме */
+body.dark-theme .search-input {
+    background-color: #2d2d2d;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-theme .search-input:focus {
+    border-color: #6666ff;
+}
+
+body.dark-theme .search-button {
+    background-color: #6666ff;
+    color: white;
+}
+
+body.dark-theme .search-button:hover {
+    background-color: #5555dd;
+}
+
+body.dark-theme .autocomplete-suggestions {
+    background-color: #2d2d2d;
+    border-color: #555;
+}
+
+body.dark-theme .autocomplete-suggestion {
+    color: #e0e0e0;
+    border-bottom-color: #444;
+}
+
+body.dark-theme .autocomplete-suggestion:hover {
+    background-color: #3a3a3a;
+}
+
+body.dark-theme .tag-count {
+    color: #aaa;
+}
+/* Стили для пагинации в темной теме */
+body.dark-theme .pagination a {
+    background-color: #2d2d2d;
+    border-color: #555;
+    color: #e0e0e0;
+}
+
+body.dark-theme .pagination a:hover {
+    border-color: #6666ff;
+    color: #82b1ff;
+    box-shadow: 0 4px 8px rgba(102, 102, 255, 0.3);
+}
+
+body.dark-theme .pagination a.active {
+    background-color: #6666ff;
+    border-color: #6666ff;
+    color: white;
+}
+
+body.dark-theme .pagination a.disabled {
+    background-color: #3a3a3a;
+    color: #888;
+    border-color: #555;
+}

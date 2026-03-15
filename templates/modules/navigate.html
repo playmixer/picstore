@@ -1,5 +1,6 @@
 {{ define "modules/navigate.html" }}
 <link rel="stylesheet" href="/css/modules/navigate.css">
+<link rel="stylesheet" href="/css/modules/theme.css">
 <nav>
     <button class="nav-toggle" id="nav-toggle" aria-label="Меню навигации">
         <span class="hamburger"></span>
@@ -17,6 +18,7 @@
             {{ end }}
         </div>
         <div class="nav-right">
+            <button class="theme-toggle" id="theme-toggle" aria-label="Переключить тему">🌙</button>
             {{ if eq .user.ID 0 }}
             <a class="login-button" href="/sso/auth">Вход</a>
             {{ else }}
@@ -27,4 +29,5 @@
     </div>
 </nav>
 <script src="/js/navigate.js" defer></script>
+<script src="/js/theme.js" defer></script>
 {{ end }}

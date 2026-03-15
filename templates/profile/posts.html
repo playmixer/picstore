@@ -216,7 +216,7 @@
         <div class="image-box-wrapper">
             <div class="image-box">
                 <input type="checkbox" class="image-checkbox" data-image-id="{{ .ID }}" style="display: none;">
-                <a href="/i/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}">
+                <a href="/i/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}#view">
                     {{ if .IsEncrypted }}
                     <div class="encrypted-placeholder" data-encrypted="true" data-path="{{ .Path }}">
                         <div>

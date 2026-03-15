@@ -189,7 +189,7 @@
     <div class="container">
     {{ range .posts }}
         <div class="image-box">
-            <a href="/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}">
+            <a href="/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}#view">
                 {{ if .IsEncrypted }}
                 <div class="encrypted-placeholder">
                     <div>
