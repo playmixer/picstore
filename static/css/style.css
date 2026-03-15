@@ -40,7 +40,7 @@ footer, nav, aside, figure, figcaption, table, th, td,
     border-radius: 0 !important;
 }
 
-input[type="text"] {
+input {
     box-sizing: border-box;
 }
 
