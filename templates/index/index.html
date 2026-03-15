@@ -1,5 +1,201 @@
 {{ define "index.html" }}
 {{ template "header.html" . }}
+<style>
+    .search-form {
+        margin: 30px auto;
+        max-width: 800px;
+        padding: 0 20px;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        position: relative;
+    }
+    .search-input {
+        flex: 1;
+        max-width: 700px;
+        min-width: 500px;
+        padding: 12px 16px;
+        font-size: 16px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        outline: none;
+        transition: border-color 0.3s;
+    }
+    .search-input:focus {
+        border-color: #007bff;
+    }
+    .search-button {
+        padding: 12px 24px;
+        font-size: 16px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background-color 0.3s;
+        white-space: nowrap;
+    }
+    .search-button:hover {
+        background-color: #0056b3;
+    }
+    .autocomplete-suggestions {
+        position: absolute;
+        background: white;
+        border: 1px solid #ccc;
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 1000;
+        width: 100%;
+        max-width: 700px;
+        min-width: 500px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        top: 100%;
+        left: 0;
+        margin-top: 4px;
+    }
+    .autocomplete-suggestion {
+        padding: 10px 15px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .autocomplete-suggestion:hover {
+        background-color: #f8f9fa;
+    }
+    .tag-count {
+        color: #666;
+        font-size: 0.9em;
+    }
+    @media (max-width: 768px) {
+        .search-form {
+            margin: 20px;
+            flex-direction: column;
+        }
+        .search-input {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+        .search-button {
+            width: 100%;
+        }
+        .autocomplete-suggestions {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+    }
+    @media (max-width: 480px) {
+        .search-form {
+            margin: 15px 10px;
+            padding: 0;
+        }
+        .search-input {
+            padding: 10px 14px;
+            font-size: 14px;
+        }
+        .search-button {
+            padding: 10px 20px;
+            font-size: 14px;
+        }
+    }
+</style>
+<div class="search-form">
+    <form method="GET" action="/posts" id="searchForm">
+        <input type="text" name="tags" class="search-input" id="tagsInput" 
+               placeholder="Введите теги через пробел" value="" autocomplete="off">
+        <button type="submit" class="search-button">Найти</button>
+        <input type="hidden" name="page" value="1">
+    </form>
+    <div id="autocomplete" class="autocomplete-suggestions" style="display:none;"></div>
+</div>
+
+<script>
+(function() {
+    const input = document.getElementById('tagsInput');
+    const autocomplete = document.getElementById('autocomplete');
+    let currentFocus = -1;
+
+    input.addEventListener('input', function(e) {
+        const prefix = e.target.value.trim();
+        // Если ввод содержит пробелы, берем последнее слово для автодополнения
+        const parts = prefix.split(' ');
+        const lastPart = parts[parts.length - 1];
+        if (lastPart.length < 1) {
+            hideAutocomplete();
+            return;
+        }
+        fetch('/api/tags?prefix=' + encodeURIComponent(lastPart))
+            .then(response => response.json())
+            .then(data => {
+                showAutocomplete(data.tags, parts.slice(0, -1).join(' '), lastPart);
+            })
+            .catch(err => console.error('Ошибка автодополнения:', err));
+    });
+
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            currentFocus = (currentFocus + 1) % autocomplete.children.length;
+            setActiveSuggestion();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            currentFocus = (currentFocus - 1 + autocomplete.children.length) % autocomplete.children.length;
+            setActiveSuggestion();
+        } else if (e.key === 'Enter' && currentFocus > -1) {
+            e.preventDefault();
+            autocomplete.children[currentFocus].click();
+        } else if (e.key === 'Escape') {
+            hideAutocomplete();
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!autocomplete.contains(e.target) && e.target !== input) {
+            hideAutocomplete();
+        }
+    });
+
+    function showAutocomplete(tags, prefix, lastPart) {
+        autocomplete.innerHTML = '';
+        if (tags.length === 0) {
+            hideAutocomplete();
+            return;
+        }
+        tags.forEach(tag => {
+            const div = document.createElement('div');
+            div.className = 'autocomplete-suggestion';
+            div.innerHTML = `<span>${tag.tag}</span><span class="tag-count">${tag.count} изображений</span>`;
+            div.addEventListener('click', function() {
+                // Заменяем последнюю часть на выбранный тег
+                const newPrefix = prefix ? prefix + ' ' + tag.tag : tag.tag;
+                input.value = newPrefix + ' ';
+                input.focus();
+                hideAutocomplete();
+                // Можно сразу отправить форму, но лучше оставить пользователю нажать кнопку
+            });
+            autocomplete.appendChild(div);
+        });
+        autocomplete.style.display = 'block';
+        currentFocus = -1;
+    }
+
+    function hideAutocomplete() {
+        autocomplete.style.display = 'none';
+        currentFocus = -1;
+    }
+
+    function setActiveSuggestion() {
+        Array.from(autocomplete.children).forEach((child, idx) => {
+            child.classList.toggle('active', idx === currentFocus);
+        });
+    }
+})();
+</script>
 
 {{ template "footer.html" . }}
 {{ end }}
