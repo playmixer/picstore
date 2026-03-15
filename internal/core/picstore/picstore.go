@@ -205,16 +205,17 @@ func tagsFromImage(img *models.Image) string {
 // containsAllTags проверяет, содержит ли строка тегов изображения все запрошенные теги.
 // imageTags - строка тегов, разделенных пробелами.
 // searchTags - слайс тегов для поиска.
+// Сравнение регистронезависимое (теги приводятся к нижнему регистру).
 func containsAllTags(imageTags string, searchTags []string) bool {
 	if len(searchTags) == 0 {
 		return true
 	}
 	tagMap := make(map[string]bool)
 	for _, t := range strings.Fields(imageTags) {
-		tagMap[t] = true
+		tagMap[strings.ToLower(t)] = true
 	}
 	for _, st := range searchTags {
-		if !tagMap[st] {
+		if !tagMap[strings.ToLower(st)] {
 			return false
 		}
 	}
