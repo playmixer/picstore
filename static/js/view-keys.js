@@ -21,6 +21,13 @@
         // Navigate to URL if link is active
         function navigateTo(url) {
             if (url) {
+                // Save fullscreen state before navigating
+                const container = document.querySelector('.view-image-container');
+                if (container && container.classList.contains('fullscreen')) {
+                    sessionStorage.setItem('autoFullscreen', 'true');
+                } else {
+                    sessionStorage.setItem('autoFullscreen', 'false');
+                }
                 window.location.href = url;
             }
         }
@@ -84,6 +91,24 @@
                     }
                 }
             }
+        }
+
+        // Intercept click on navigation links to preserve fullscreen state
+        if (prevButton && prevButton.tagName === 'A') {
+            prevButton.addEventListener('click', function(e) {
+                if (!isDisabled(prevButton)) {
+                    e.preventDefault();
+                    navigateTo(prevButton.href);
+                }
+            });
+        }
+        if (nextButton && nextButton.tagName === 'A') {
+            nextButton.addEventListener('click', function(e) {
+                if (!isDisabled(nextButton)) {
+                    e.preventDefault();
+                    navigateTo(nextButton.href);
+                }
+            });
         }
 
         // Attach event listeners

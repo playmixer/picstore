@@ -42,12 +42,74 @@
     .view-image-container {
         text-align: center;
         margin: 20px 0;
+        position: relative;
     }
     .view-image {
         max-width: 100%;
         max-height: 80vh;
         border-radius: 4px;
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+    .view-image:hover {
+        transform: scale(1.01);
+    }
+    .fullscreen-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background-color: rgba(0, 0, 0, 0.6);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        transition: background-color 0.3s;
+    }
+    .fullscreen-button:hover {
+        background-color: rgba(0, 0, 0, 0.8);
+    }
+    .fullscreen-button:focus {
+        outline: none;
+    }
+    /* Стили для полноэкранного режима */
+    .view-image-container.fullscreen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: black;
+        z-index: 9999;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .view-image-container.fullscreen .view-image {
+        max-width: 100vw;
+        max-height: 100vh;
+        border-radius: 0;
+        box-shadow: none;
+    }
+    .view-image-container.fullscreen .fullscreen-button {
+        top: 20px;
+        right: 20px;
+        background-color: rgba(255, 255, 255, 0.2);
+    }
+    .view-image-container.fullscreen .fullscreen-button:hover {
+        background-color: rgba(255, 255, 255, 0.4);
+    }
+    .view-image-container.fullscreen .encrypted-placeholder {
+        display: none;
     }
     .view-info {
         margin-top: 20px;
@@ -154,6 +216,7 @@
         </div>
         {{ else }}
         <img class="view-image" id="view" src="{{ .image }}" alt="Изображение">
+        <button class="fullscreen-button" aria-label="Полноэкранный режим" title="Полноэкранный режим">⛶</button>
         {{ end }}
     </div>
     <div class="view-info">
@@ -189,5 +252,6 @@
     </div>
 </div>
 <script src="/js/view-keys.js"></script>
+<script src="/js/fullscreen.js"></script>
 {{ template "footer.html" . }}
 {{ end }}
