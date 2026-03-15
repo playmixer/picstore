@@ -122,7 +122,7 @@
 <div class="view-container">
     <div class="view-navigation">
         {{ if .prev }}
-            <a class="nav-button" href="{{ .prev }}">←</a>
+            <a id="prev-button" class="nav-button" href="{{ .prev }}">←</a>
         {{ else }}
             <span class="nav-button disabled">←</span>
         {{ end }}
@@ -132,7 +132,7 @@
             <a class="nav-button" href="/posts">К списку</a>
         {{ end }}
         {{ if .next }}
-            <a class="nav-button" href="{{ .next }}">→</a>
+            <a id="next-button" class="nav-button" href="{{ .next }}">→</a>
         {{ else }}
             <span class="nav-button disabled">→</span>
         {{ end }}
@@ -188,5 +188,6 @@
         {{ end }}
     </div>
 </div>
+<script src="/js/view-keys.js"></script>
 {{ template "footer.html" . }}
 {{ end }}
