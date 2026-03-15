@@ -75,7 +75,7 @@
 <div class="view-container">
     <div class="view-navigation">
         {{ if .prev }}
-            <a id="prev-button" class="nav-button" href="{{ .prev }}">←</a>
+            <a id="prev-button" class="nav-button" href="{{ .prev }}#view">←</a>
         {{ else }}
             <span class="nav-button disabled">←</span>
         {{ end }}
@@ -85,7 +85,7 @@
             <a class="nav-button" href="/i/posts">К списку</a>
         {{ end }}
         {{ if .next }}
-            <a id="next-button" class="nav-button" href="{{ .next }}">→</a>
+            <a id="next-button" class="nav-button" href="{{ .next }}#view">→</a>
         {{ else }}
             <span class="nav-button disabled">→</span>
         {{ end }}
