@@ -15,7 +15,7 @@
         justify-content: space-between;
         align-items: center;
         margin-bottom: 20px;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 10px;
     }
     .nav-button {
@@ -29,7 +29,7 @@
         transition: background-color 0.3s;
         text-align: center;
         flex: 1;
-        min-width: 120px;
+        min-width: 50px;
     }
     .nav-button:hover {
         background-color: #5555dd;
@@ -78,10 +78,6 @@
             padding: 15px;
             margin: 10px;
         }
-        .view-navigation {
-            flex-direction: column;
-            align-items: stretch;
-        }
         .nav-button {
             width: 100%;
             margin-bottom: 10px;
@@ -126,9 +122,9 @@
 <div class="view-container">
     <div class="view-navigation">
         {{ if .prev }}
-            <a class="nav-button" href="{{ .prev }}">← Предыдущее изображение</a>
+            <a class="nav-button" href="{{ .prev }}">←</a>
         {{ else }}
-            <span class="nav-button disabled">← Предыдущее изображение</span>
+            <span class="nav-button disabled">←</span>
         {{ end }}
         {{ if .tags }}
             <a class="nav-button" href="/posts?tags={{ .tags }}">К списку (фильтр: {{ .tags }})</a>
@@ -136,9 +132,9 @@
             <a class="nav-button" href="/posts">К списку</a>
         {{ end }}
         {{ if .next }}
-            <a class="nav-button" href="{{ .next }}">Следующее изображение →</a>
+            <a class="nav-button" href="{{ .next }}">→</a>
         {{ else }}
-            <span class="nav-button disabled">Следующее изображение →</span>
+            <span class="nav-button disabled">→</span>
         {{ end }}
     </div>
     <div class="view-image-container">

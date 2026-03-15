@@ -2,12 +2,15 @@
 {{ template "header.html" . }}
 <style>
     .container {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
+        display: flex;
+        flex-direction: row;
         gap: 20px;
         padding: 20px;
         max-width: 1200px;
         margin: 0 auto;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
     }
     .image-box {
         display: flex;
@@ -20,6 +23,7 @@
         background-color: white;
         aspect-ratio: 1 / 1;
         max-height: 400px;
+        height: 400px;
     }
     .image-box:hover {
         transform: translateY(-5px);

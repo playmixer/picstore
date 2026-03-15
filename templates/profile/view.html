@@ -14,6 +14,7 @@
         justify-content: space-between;
         align-items: center;
         margin-bottom: 20px;
+        gap: 10px;
     }
     .nav-button {
         display: inline-block;
@@ -24,6 +25,9 @@
         border-radius: 4px;
         font-size: 16px;
         transition: background-color 0.3s;
+        text-align: center;
+        width: 100%;
+        min-width: 50px;
     }
     .nav-button:hover {
         background-color: #5555dd;
@@ -71,9 +75,9 @@
 <div class="view-container">
     <div class="view-navigation">
         {{ if .prev }}
-            <a class="nav-button" href="{{ .prev }}">← Предыдущее изображение</a>
+            <a class="nav-button" href="{{ .prev }}">←</a>
         {{ else }}
-            <span class="nav-button disabled">← Предыдущее изображение</span>
+            <span class="nav-button disabled">←</span>
         {{ end }}
         {{ if .tags }}
             <a class="nav-button" href="/i/posts?tags={{ .tags }}">К списку (фильтр: {{ .tags }})</a>
@@ -81,9 +85,9 @@
             <a class="nav-button" href="/i/posts">К списку</a>
         {{ end }}
         {{ if .next }}
-            <a class="nav-button" href="{{ .next }}">Следующее изображение →</a>
+            <a class="nav-button" href="{{ .next }}">→</a>
         {{ else }}
-            <span class="nav-button disabled">Следующее изображение →</span>
+            <span class="nav-button disabled">→</span>
         {{ end }}
     </div>
     <div class="view-image-container">

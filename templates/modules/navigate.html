@@ -1,18 +1,26 @@
 {{ define "modules/navigate.html" }}
 <link rel="stylesheet" href="/css/modules/navigate.css">
 <nav>
-    <a href="/">Главная</a>
-    <a href="/about">О нас</a>
-    <a href="/posts">Посты</a>
-    {{ if eq .user.ID 0 }}
-    <a class="login-button" href="/sso/auth">Вход</a>
-    {{ else }}
-    {{ if .user.IsPublisher }}
-    <a href="/i/upload">Загрузить</a>
-    <a href="/i/posts">Мои посты</a>
-    {{ end }}
-    <a class="logout-button" href="/sso/logout">Выход</a>
-    <a class="user-info" href="/i">Ваш email: {{ .user.Email }}</a>
-    {{ end }}
+    <button class="nav-toggle" id="nav-toggle" aria-label="Меню навигации">
+        <span class="hamburger"></span>
+        <span class="hamburger"></span>
+        <span class="hamburger"></span>
+    </button>
+    <div class="nav-links" id="nav-menu">
+        <a href="/">Главная</a>
+        <a href="/about">О нас</a>
+        <a href="/posts">Посты</a>
+        {{ if eq .user.ID 0 }}
+        <a class="login-button" href="/sso/auth">Вход</a>
+        {{ else }}
+        {{ if .user.IsPublisher }}
+        <a href="/i/upload">Загрузить</a>
+        <a href="/i/posts">Мои посты</a>
+        {{ end }}
+        <a class="logout-button" href="/sso/logout">Выход</a>
+        <a class="user-info" href="/i">Ваш email: {{ .user.Email }}</a>
+        {{ end }}
+    </div>
 </nav>
+<script src="/js/navigate.js" defer></script>
 {{ end }}
