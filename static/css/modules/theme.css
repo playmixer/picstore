@@ -94,6 +94,57 @@ body.dark-theme .info {
         margin-left: 0;
         order: -1;
     }
+
+    /* Адаптация encrypted-placeholder для маленьких экранов */
+    .encrypted-placeholder {
+        padding: 20px !important;
+    }
+    .encrypted-placeholder h3 {
+        font-size: 18px;
+    }
+    .encrypted-placeholder p {
+        font-size: 14px;
+    }
+    .encrypted-placeholder div[style*="font-size: 64px"] {
+        font-size: 48px !important;
+    }
+    .encrypted-placeholder div[style*="font-size: 48px"] {
+        font-size: 36px !important;
+    }
+    .encrypted-placeholder input[type="password"] {
+        padding: 10px;
+        font-size: 14px;
+    }
+    .encrypted-placeholder button[type="submit"] {
+        padding: 10px;
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 480px) {
+    .encrypted-placeholder {
+        padding: 15px !important;
+    }
+    .encrypted-placeholder h3 {
+        font-size: 16px;
+    }
+    .encrypted-placeholder p {
+        font-size: 12px;
+    }
+    .encrypted-placeholder div[style*="font-size: 64px"] {
+        font-size: 36px !important;
+    }
+    .encrypted-placeholder div[style*="font-size: 48px"] {
+        font-size: 24px !important;
+    }
+    .encrypted-placeholder input[type="password"] {
+        padding: 8px;
+        font-size: 13px;
+    }
+    .encrypted-placeholder button[type="submit"] {
+        padding: 8px;
+        font-size: 13px;
+    }
 }
 /* Стили для view-container в темной теме */
 body.dark-theme .view-container {
@@ -141,12 +192,61 @@ body.dark-theme .image-box:hover {
 }
 
 body.dark-theme .encrypted-placeholder {
-    background-color: #3a3a3a;
+    background-color: #3a3a3a !important;
     color: #e0e0e0;
 }
 
 body.dark-theme .encrypted-placeholder p {
     color: #b0b0b0;
+}
+
+/* Переопределение инлайн-стилей для больших плейсхолдеров на странице view */
+body.dark-theme .encrypted-placeholder[style*="background-color"] {
+    background-color: #3a3a3a !important;
+}
+
+/* Стили для текстовых элементов внутри */
+body.dark-theme .encrypted-placeholder h3 {
+    color: #bb86fc;
+}
+
+body.dark-theme .encrypted-placeholder div[style*="color: #666"] {
+    color: #b0b0b0 !important;
+}
+
+body.dark-theme .encrypted-placeholder div[style*="color: #999"] {
+    color: #888 !important;
+}
+
+/* Стили для формы ввода ключа */
+body.dark-theme .encrypted-placeholder input[type="password"] {
+    background-color: #2d2d2d;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-theme .encrypted-placeholder input[type="password"]:focus {
+    border-color: #6666ff;
+    outline: none;
+}
+
+body.dark-theme .encrypted-placeholder button[type="submit"] {
+    background-color: #6666ff;
+    color: white;
+    border: none;
+}
+
+body.dark-theme .encrypted-placeholder button[type="submit"]:hover {
+    background-color: #5555dd;
+}
+
+/* Для маленьких плейсхолдеров в списках постов */
+body.dark-theme .image-box .encrypted-placeholder {
+    background-color: #3a3a3a !important;
+}
+
+body.dark-theme .encrypted-placeholder div[style*="color: #666"] {
+    color: #b0b0b0 !important;
 }
 
 /* Стили для футера в темной теме */

@@ -71,6 +71,60 @@
         font-size: 12px;
         color: #333;
     }
+    @media (max-width: 768px) {
+        .view-container {
+            padding: 15px;
+            margin: 10px;
+        }
+        .nav-button {
+            width: 100%;
+            margin-bottom: 10px;
+            font-size: 14px;
+            padding: 8px 16px;
+        }
+        .view-image-container {
+            margin: 15px 0;
+        }
+        .view-info {
+            padding: 12px;
+            font-size: 13px;
+        }
+        .encrypted-placeholder {
+            padding: 20px !important;
+        }
+        .encrypted-placeholder h3 {
+            font-size: 18px;
+        }
+        .encrypted-placeholder p {
+            font-size: 14px;
+        }
+    }
+    @media (max-width: 480px) {
+        .view-container {
+            padding: 10px;
+            margin: 5px;
+        }
+        .nav-button {
+            font-size: 13px;
+            padding: 6px 12px;
+        }
+        .view-image {
+            max-height: 70vh;
+        }
+        .tag {
+            font-size: 11px;
+            padding: 2px 6px;
+        }
+        .encrypted-placeholder {
+            padding: 15px !important;
+        }
+        .encrypted-placeholder h3 {
+            font-size: 16px;
+        }
+        .encrypted-placeholder p {
+            font-size: 12px;
+        }
+    }
 </style>
 <div class="view-container">
     <div class="view-navigation">
@@ -95,7 +149,7 @@
         <img class="view-image" id="view" src="/i/view/{{ .img.Path }}?view=file&key={{ .key }}" alt="Изображение">
         {{ end }}
         {{ if .img.IsEncrypted }}
-        <div class="encrypted-placeholder" style="width: 100%; max-width: 800px; margin: 0 auto; background-color: #f0f0f0; border-radius: 8px; padding: 40px; text-align: center;">
+        <div class="encrypted-placeholder" style="max-width: 800px; margin: 0 auto; background-color: #f0f0f0; border-radius: 8px; padding: 40px; text-align: center;">
             <div style="font-size: 64px; margin-bottom: 20px;">🔒</div>
             <h3 style="margin-bottom: 10px;">Изображение зашифровано</h3>
             <p style="color: #666; margin-bottom: 30px;">Для просмотра введите ключ шифрования</p>
