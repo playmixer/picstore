@@ -26,6 +26,7 @@ services:
       SSO_AUTH_URL: ${SSO_AUTH_URL}
       SSO_AUTH_CERT_FILE: ${SSO_AUTH_CERT_FILE}
       ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION}
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
