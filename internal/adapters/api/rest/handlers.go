@@ -284,6 +284,8 @@ func (s *Server) handlerPosts(c *gin.Context) {
 // GET /api/tags - автодополнение тегов
 func (s *Server) handlerTagsAutocomplete(c *gin.Context) {
 	prefix := strings.ToLower(strings.TrimSpace(c.Query("prefix")))
+	// Если префикс начинается с минуса, игнорируем его для поиска
+	searchPrefix := strings.TrimPrefix(prefix, "-")
 	tagsMap, err := s.pic.GetTagsWithCount(c.Request.Context())
 	if err != nil {
 		s.log.Error("failed get tags with count", zap.Error(err))
@@ -298,7 +300,7 @@ func (s *Server) handlerTagsAutocomplete(c *gin.Context) {
 	result := []tagItem{}
 
 	for tag, count := range tagsMap {
-		if prefix == "" || strings.HasPrefix(strings.ToLower(tag), prefix) {
+		if searchPrefix == "" || strings.HasPrefix(strings.ToLower(tag), searchPrefix) {
 			result = append(result, tagItem{Tag: tag, Count: count})
 		}
 	}
@@ -452,17 +454,34 @@ func (s *Server) handlerUserPosts(c *gin.Context) {
 	var filteredPosts []*picstore.PicImage
 	if tagsParam != "" {
 		searchTags := strings.Fields(tagsParam)
-		// Вспомогательная функция для проверки тегов
+		// Вспомогательная функция для проверки тегов (с поддержкой исключающих тегов)
 		containsAllTags := func(imageTags string, searchTags []string) bool {
 			if len(searchTags) == 0 {
 				return true
 			}
+			// Разделяем теги на включающие и исключающие
+			var includeTags, excludeTags []string
+			for _, t := range searchTags {
+				if strings.HasPrefix(t, "-") && len(t) > 1 {
+					excludeTags = append(excludeTags, strings.ToLower(t[1:]))
+				} else {
+					includeTags = append(includeTags, strings.ToLower(t))
+				}
+			}
+			// Строим карту тегов изображения (в нижнем регистре)
 			tagMap := make(map[string]bool)
 			for _, t := range strings.Fields(imageTags) {
-				tagMap[t] = true
+				tagMap[strings.ToLower(t)] = true
 			}
-			for _, st := range searchTags {
-				if !tagMap[st] {
+			// Проверяем наличие всех включающих тегов
+			for _, t := range includeTags {
+				if !tagMap[t] {
+					return false
+				}
+			}
+			// Проверяем отсутствие исключающих тегов
+			for _, t := range excludeTags {
+				if tagMap[t] {
 					return false
 				}
 			}
@@ -593,12 +612,29 @@ func (s *Server) handlerUserView(c *gin.Context) {
 			if len(searchTags) == 0 {
 				return true
 			}
+			// Разделяем теги на включающие и исключающие
+			var includeTags, excludeTags []string
+			for _, t := range searchTags {
+				if strings.HasPrefix(t, "-") && len(t) > 1 {
+					excludeTags = append(excludeTags, strings.ToLower(t[1:]))
+				} else {
+					includeTags = append(includeTags, strings.ToLower(t))
+				}
+			}
+			// Строим карту тегов изображения (в нижнем регистре)
 			tagMap := make(map[string]bool)
 			for _, t := range strings.Fields(imageTags) {
-				tagMap[t] = true
+				tagMap[strings.ToLower(t)] = true
 			}
-			for _, st := range searchTags {
-				if !tagMap[st] {
+			// Проверяем наличие всех включающих тегов
+			for _, t := range includeTags {
+				if !tagMap[t] {
+					return false
+				}
+			}
+			// Проверяем отсутствие исключающих тегов
+			for _, t := range excludeTags {
+				if tagMap[t] {
 					return false
 				}
 			}

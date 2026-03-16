@@ -209,7 +209,7 @@ func (s *Storage) NewImage(ctx context.Context, userID uint, path string, isPubl
 			}
 			// Ищем или создаём тег (регистронезависимо)
 			tag := &models.Tag{}
-			result := s.db.WithContext(ctx).Where("LOWER(name) = LOWER(?)", tagName).First(tag)
+			result := s.db.WithContext(ctx).Where("name = ?", tagName).First(tag)
 			if result.Error != nil && errors.Is(result.Error, gorm.ErrRecordNotFound) {
 				tag.Name = tagName
 				if err := s.db.WithContext(ctx).Create(tag).Error; err != nil {
@@ -349,7 +349,7 @@ func (s *Storage) UpdateImage(ctx context.Context, userID uint, imageID uint, is
 					continue
 				}
 				tag := &models.Tag{}
-				result := s.db.WithContext(ctx).Where("LOWER(name) = LOWER(?)", tagName).First(tag)
+				result := s.db.WithContext(ctx).Where("name = ?", tagName).First(tag)
 				if result.Error != nil && errors.Is(result.Error, gorm.ErrRecordNotFound) {
 					tag.Name = tagName
 					if err := s.db.WithContext(ctx).Create(tag).Error; err != nil {

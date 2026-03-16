@@ -107,7 +107,7 @@
 <div class="search-form">
     <form method="GET" action="/posts" id="searchForm">
         <input type="text" name="tags" class="search-input" id="tagsInput" 
-               placeholder="Введите теги через пробел" value="" autocomplete="off">
+               placeholder="Введите теги через пробел (например: cat dog -car)" value="" autocomplete="off">
         <button type="submit" class="search-button">Найти</button>
         <input type="hidden" name="page" value="1">
     </form>
@@ -166,13 +166,16 @@
             hideAutocomplete();
             return;
         }
+        // Определяем, был ли в lastPart минус
+        const sign = lastPart.startsWith('-') ? '-' : '';
         tags.forEach(tag => {
             const div = document.createElement('div');
             div.className = 'autocomplete-suggestion';
             div.innerHTML = `<span>${tag.tag}</span><span class="tag-count">${tag.count} изображений</span>`;
             div.addEventListener('click', function() {
-                // Заменяем последнюю часть на выбранный тег
-                const newPrefix = prefix ? prefix + ' ' + tag.tag : tag.tag;
+                // Заменяем последнюю часть на выбранный тег с сохранением знака
+                const selectedTag = sign + tag.tag;
+                const newPrefix = prefix ? prefix + ' ' + selectedTag : selectedTag;
                 input.value = newPrefix + ' ';
                 input.focus();
                 hideAutocomplete();

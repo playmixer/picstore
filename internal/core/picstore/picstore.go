@@ -204,18 +204,38 @@ func tagsFromImage(img *models.Image) string {
 
 // containsAllTags проверяет, содержит ли строка тегов изображения все запрошенные теги.
 // imageTags - строка тегов, разделенных пробелами.
-// searchTags - слайс тегов для поиска.
+// searchTags - слайс тегов для поиска (может содержать теги с префиксом '-' для исключения).
 // Сравнение регистронезависимое (теги приводятся к нижнему регистру).
 func containsAllTags(imageTags string, searchTags []string) bool {
 	if len(searchTags) == 0 {
 		return true
 	}
+	// Разделяем теги на включающие (required) и исключающие (excluded)
+	var required []string
+	var excluded []string
+	for _, st := range searchTags {
+		if strings.HasPrefix(st, "-") && len(st) > 1 {
+			excluded = append(excluded, strings.ToLower(st[1:]))
+		} else {
+			required = append(required, strings.ToLower(st))
+		}
+	}
+
+	// Строим карту тегов изображения
 	tagMap := make(map[string]bool)
 	for _, t := range strings.Fields(imageTags) {
 		tagMap[strings.ToLower(t)] = true
 	}
-	for _, st := range searchTags {
-		if !tagMap[strings.ToLower(st)] {
+
+	// Проверяем, что все required теги присутствуют
+	for _, req := range required {
+		if !tagMap[req] {
+			return false
+		}
+	}
+	// Проверяем, что ни один excluded тег не присутствует
+	for _, exc := range excluded {
+		if tagMap[exc] {
 			return false
 		}
 	}
