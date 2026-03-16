@@ -298,6 +298,7 @@
         </div>
     </form>
 </div>
+<div id="maxFileSize" data-value="{{.maxFileSize}}" style="display:none;"></div>
 <script>
     const tabs = document.querySelectorAll(".tab")
     const forms = document.querySelectorAll("form")
@@ -331,6 +332,43 @@
                 }
             });
         });
+    });
+</script>
+<script>
+    // Валидация размера файла перед отправкой
+    const maxFileSizeElement = document.getElementById('maxFileSize');
+    const MAX_FILE_SIZE_BYTES = maxFileSizeElement ? parseInt(maxFileSizeElement.dataset.value) : 0; // в байтах, 0 означает отсутствие ограничения
+    const fileInput = document.getElementById('files');
+    const formFile = document.getElementById('form_file');
+    const errorDiv = document.querySelector('.error');
+
+    formFile.addEventListener('submit', function(event) {
+        if (fileInput.files.length === 0) {
+            return; // пустая загрузка, браузер сам покажет required
+        }
+        // Если лимит не задан (0 или отрицательный), пропускаем проверку
+        if (MAX_FILE_SIZE_BYTES <= 0) {
+            return;
+        }
+        let valid = true;
+        let errorMessage = '';
+        const maxMB = (MAX_FILE_SIZE_BYTES / (1024 * 1024)).toFixed(1);
+        for (let file of fileInput.files) {
+            if (file.size > MAX_FILE_SIZE_BYTES) {
+                valid = false;
+                errorMessage = `Файл "${file.name}" превышает максимальный размер (${maxMB} МБ).`;
+                break;
+            }
+        }
+        if (!valid) {
+            event.preventDefault();
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = errorMessage;
+            // Прокрутить к ошибке
+            errorDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            errorDiv.style.display = 'none';
+        }
     });
 </script>
 {{ template "footer.html" . }}

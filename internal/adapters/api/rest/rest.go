@@ -48,6 +48,7 @@ type PicStore interface {
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	DeleteImage(ctx context.Context, userID uint, imageID uint) error
 	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
+	GetMaxFileSize() int64
 }
 
 type Cache interface {

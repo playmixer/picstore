@@ -60,6 +60,7 @@ type self interface {
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	DeleteImage(ctx context.Context, userID uint, imageID uint) error
 	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
+	GetMaxFileSize() int64
 }
 
 type PicStore struct {
@@ -131,6 +132,10 @@ func (p *PicStore) Stop() {
 }
 
 func (p *PicStore) UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*PicImage, error) {
+	// Проверка размера файла
+	if p.cfg.MaxFileSize > 0 && f.Size > p.cfg.MaxFileSize {
+		return nil, fmt.Errorf("размер файла превышает максимально допустимый (%d байт)", p.cfg.MaxFileSize)
+	}
 	filename := f.Filename
 	extension := filepath.Ext(filename)
 	file, err := f.Open()
@@ -243,6 +248,10 @@ func containsAllTags(imageTags string, searchTags []string) bool {
 }
 
 func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tags string, encryptionKey string, data []byte, extension string) (*PicImage, error) {
+	// Проверка размера данных
+	if p.cfg.MaxFileSize > 0 && int64(len(data)) > p.cfg.MaxFileSize {
+		return nil, fmt.Errorf("размер файла превышает максимально допустимый (%d байт)", p.cfg.MaxFileSize)
+	}
 	cur := time.Now()
 	// относительный путь для БД
 	storeDir := path.Join(cur.Format("2006"), cur.Format("01"), cur.Format("02"), cur.Format("15"))
@@ -639,4 +648,9 @@ func (p *PicStore) DecryptImage(ctx context.Context, path string, key string) ([
 		return nil, fmt.Errorf("decryption failed: %w", err)
 	}
 	return plaintext, nil
+}
+
+// GetMaxFileSize возвращает максимально допустимый размер файла в байтах.
+func (p *PicStore) GetMaxFileSize() int64 {
+	return p.cfg.MaxFileSize
 }

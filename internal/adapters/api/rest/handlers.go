@@ -125,7 +125,8 @@ func (s *Server) handlerProfile(c *gin.Context) {
 
 func (s *Server) handlerUpload(c *gin.Context) {
 	c.HTML(http.StatusOK, "profile/upload.html", gin.H{
-		"user": s.getUser(c),
+		"user":        s.getUser(c),
+		"maxFileSize": s.pic.GetMaxFileSize(),
 	})
 }
 
