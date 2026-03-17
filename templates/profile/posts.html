@@ -258,14 +258,14 @@
                 <input type="checkbox" class="image-checkbox" data-image-id="{{ .ID }}" style="display: none;">
                 <a href="/i/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}#view">
                     {{ if .IsEncrypted }}
-                    <div class="encrypted-placeholder" data-encrypted="true" data-path="{{ .Path }}">
+                    <div class="encrypted-placeholder" data-encrypted="true" data-path="{{ .Path }}" data-preview-path="{{ .PreviewPath }}">
                         <div>
                             <div style="font-size: 48px;">👁️‍🗨️</div>
                             <div style="font-size: 14px; color: #666; margin-top: 8px;">Скрыто</div>
                         </div>
                     </div>
                     {{ else }}
-                    <img src="/image/{{ .Path }}" alt="{{ .Path }}">
+                    <img src="/image/{{ if .PreviewPath }}{{ .PreviewPath }}{{ else }}{{ .Path }}{{ end }}" alt="{{ .Path }}">
                     {{ end }}
                 </a>
             </div>
@@ -379,8 +379,10 @@
     const placeholders = document.querySelectorAll('.encrypted-placeholder[data-encrypted="true"]');
     placeholders.forEach(placeholder => {
         const path = placeholder.getAttribute('data-path');
+        const previewPath = placeholder.getAttribute('data-preview-path');
+        const usePath = previewPath && previewPath.trim() !== '' ? previewPath : path;
         const img = document.createElement('img');
-        img.src = `/i/view/${path}?key=${encodeURIComponent(key)}&view=file`;
+        img.src = `/i/view/${usePath}?key=${encodeURIComponent(key)}&view=file`;
         img.alt = 'Зашифрованное изображение';
         img.style.width = '100%';
         img.style.height = '100%';

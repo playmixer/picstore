@@ -13,6 +13,7 @@ type PicImage struct {
 	ID          uint
 	Filename    string
 	Path        string // полный путь хранения
+	PreviewPath string // путь к превью (относительный)
 	Extension   string
 	IsPublic    bool
 	UserID      uint

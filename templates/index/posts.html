@@ -191,14 +191,14 @@
         <div class="image-box">
             <a href="/view/{{.Path}}{{if $.tags}}?tags={{urlquery $.tags}}{{end}}#view">
                 {{ if .IsEncrypted }}
-                <div class="encrypted-placeholder">
+                <div class="encrypted-placeholder" data-encrypted="true" data-path="{{ .Path }}" data-preview-path="{{ .PreviewPath }}">
                     <div>
                         <div style="font-size: 48px;">👁️‍🗨️</div>
                         <div style="font-size: 14px; color: #666; margin-top: 8px;">Скрыто</div>
                     </div>
                 </div>
                 {{ else }}
-                <img src="/image/{{ .Path }}" alt="{{ .Path }}">
+                <img src="/image/{{ if .PreviewPath }}{{ .PreviewPath }}{{ else }}{{ .Path }}{{ end }}" alt="{{ .Path }}">
                 {{ end }}
             </a>
         </div>

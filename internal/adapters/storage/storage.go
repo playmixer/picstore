@@ -26,11 +26,20 @@ type Storage interface {
 	NewRole(ctx context.Context, name string) (*models.Role, error)
 	GetRole(ctx context.Context, name string) (*models.Role, error)
 
+	// Основные методы для изображений
 	NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error)
-	DelImage(ctx context.Context, userID uint, imageID uint) error
-	DelImages(ctx context.Context, userID uint, imageIDs []uint) error
+	NewImageWithStatus(ctx context.Context, userID uint, path, previewPath string, isPublic bool, tags string,
+		isEncrypted bool, salt, nonce, previewSalt, previewNonce []byte,
+		processingStatus, originalPath, tempStoragePath string) (*models.Image, error)
+	UpdateProcessingStatus(ctx context.Context, imageID uint, status string, errorMsg *string) error
+	UpdateImageAfterProcessing(ctx context.Context, imageID uint, finalPath, previewPath string,
+		isEncrypted bool, salt, nonce, previewSalt, previewNonce []byte,
+		status string, processedAt *time.Time) error
+	GetImageByID(ctx context.Context, imageID uint) (*models.Image, error)
 	GetImage(ctx context.Context, path string) (*models.Image, error)
 	GetImages(ctx context.Context) ([]*models.Image, error)
+	DelImage(ctx context.Context, userID uint, imageID uint) error
+	DelImages(ctx context.Context, userID uint, imageIDs []uint) error
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 
 	Close() error

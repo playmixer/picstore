@@ -804,7 +804,7 @@ func (s *Server) handlerDeleteImage(c *gin.Context) {
 		return
 	}
 
-	err = s.pic.DeleteImage(c.Request.Context(), user.ID, img.ID)
+	err = s.pic.DeleteImages(c.Request.Context(), user.ID, []uint{img.ID})
 	if err != nil {
 		s.log.Error("failed delete image", zap.Error(err))
 		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/view/%s?error=%s", path, url.QueryEscape("не удалось удалить изображение")))
