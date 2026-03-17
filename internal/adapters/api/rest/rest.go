@@ -46,7 +46,6 @@ type PicStore interface {
 	GetTagsWithCount(ctx context.Context) (map[string]int, error)
 	GetUserPosts(ctx context.Context, userID uint) ([]*picstore.PicImage, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
-	DeleteImage(ctx context.Context, userID uint, imageID uint) error
 	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
 	GetMaxFileSize() int64
 }

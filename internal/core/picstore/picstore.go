@@ -1,9 +1,12 @@
 package picstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"os"
@@ -15,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chai2010/webp"
+	"github.com/disintegration/imaging"
 	"github.com/playmixer/secret-keeper/pkg/tools"
 	"github.com/playmixer/single-auth/pkg/logger"
 	"go.uber.org/zap"
@@ -65,7 +70,6 @@ type self interface {
 	GetTagsWithCount(ctx context.Context) (map[string]int, error)
 	GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
-	DeleteImage(ctx context.Context, userID uint, imageID uint) error
 	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
 	GetMaxFileSize() int64
 }
@@ -133,6 +137,8 @@ func (p *PicStore) worker(id int) {
 
 // processImageTask выполняет асинхронную обработку изображения: конвертацию, генерацию превью, шифрование.
 func (p *PicStore) processImageTask(ctx context.Context, imageID uint, encryptionKey string) error {
+	start := time.Now()
+	p.log.Debug("processImageTask started", zap.Uint("imageID", imageID))
 	// Получаем запись изображения из БД
 	img, err := p.store.GetImageByID(ctx, imageID)
 	if err != nil {
@@ -342,7 +348,7 @@ func (p *PicStore) processImageTask(ctx context.Context, imageID uint, encryptio
 	// Инвалидируем кэш
 	p.invalidateCache(ctx)
 
-	p.log.Info("image processing completed", zap.Uint("imageID", imageID))
+	p.log.Info("image processing completed", zap.Uint("imageID", imageID), zap.Duration("elapsed", time.Since(start)))
 	return nil
 }
 
@@ -807,46 +813,6 @@ func (p *PicStore) UpdateImage(ctx context.Context, userID uint, imageID uint, i
 	return nil
 }
 
-// DeleteImage удаляет изображение
-func (p *PicStore) DeleteImage(ctx context.Context, userID uint, imageID uint) error {
-	// Получаем изображение, чтобы узнать путь к файлу
-	images, err := p.GetUserPosts(ctx, userID)
-	if err != nil {
-		return err
-	}
-	var target *PicImage
-	for _, img := range images {
-		if img.ID == imageID {
-			target = img
-			break
-		}
-	}
-	if target == nil {
-		return fmt.Errorf("image not found or access denied")
-	}
-	// Удаляем запись из хранилища
-	err = p.store.DelImage(ctx, userID, imageID)
-	if err != nil {
-		return err
-	}
-	// Отправляем задачу на удаление файла в очередь
-	fullPath := filepath.Join(p.picturePath, target.Path)
-	task := func() error {
-		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to delete image file %s: %w", fullPath, err)
-		}
-		return nil
-	}
-	select {
-	case p.taskQueue <- task:
-		p.log.Debug("file deletion queued", zap.String("path", fullPath))
-	default:
-		p.log.Warn("task queue full, file not queued", zap.String("path", fullPath))
-	}
-	p.invalidateCache(ctx)
-	return nil
-}
-
 // DeleteImages удаляет несколько изображений
 func (p *PicStore) DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error {
 	// Получаем все изображения пользователя
@@ -867,19 +833,37 @@ func (p *PicStore) DeleteImages(ctx context.Context, userID uint, imageIDs []uin
 	// Отправляем задачи на удаление файлов в очередь
 	for _, img := range images {
 		if idSet[img.ID] {
-			fullPath := filepath.Join(p.picturePath, img.Path)
-			task := func() error {
-				if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-					return fmt.Errorf("failed to delete image file %s: %w", fullPath, err)
+			func(img PicImage) {
+				fullPath := filepath.Join(p.picturePath, img.Path)
+				task := func() error {
+					if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+						return fmt.Errorf("failed to delete image file %s: %w", fullPath, err)
+					}
+					return nil
 				}
-				return nil
-			}
-			select {
-			case p.taskQueue <- task:
-				p.log.Debug("file deletion queued", zap.String("path", fullPath))
-			default:
-				p.log.Warn("task queue full, file not queued", zap.String("path", fullPath))
-			}
+				select {
+				case p.taskQueue <- task:
+					p.log.Debug("file deletion queued", zap.String("path", fullPath))
+				default:
+					p.log.Warn("task queue full, file not queued", zap.String("path", fullPath))
+				}
+
+				// Отправляем задачу на удаление файла в очередь
+				fullPreviewPath := filepath.Join(p.picturePath, img.PreviewPath)
+				task = func() error {
+					if err := os.Remove(fullPreviewPath); err != nil && !os.IsNotExist(err) {
+						return fmt.Errorf("failed to delete image file %s: %w", fullPreviewPath, err)
+					}
+					return nil
+				}
+				select {
+				case p.taskQueue <- task:
+					p.log.Debug("file deletion queued", zap.String("path", fullPreviewPath))
+				default:
+					p.log.Warn("task queue full, file not queued", zap.String("path", fullPreviewPath))
+
+				}
+			}(*img)
 		}
 	}
 	p.invalidateCache(ctx)
@@ -945,20 +929,158 @@ func (p *PicStore) GetMaxFileSize() int64 {
 	return p.cfg.MaxFileSize
 }
 
-// convertToWebP конвертирует изображение в формат WebP (заглушка).
-// В реальной реализации следует использовать библиотеку обработки изображений.
+// convertToWebP конвертирует изображение в целевой формат (из конфигурации).
+// Поддерживаемые форматы: webp, jpeg, png.
 func (p *PicStore) convertToWebP(data []byte) ([]byte, error) {
-	// Заглушка: возвращаем те же данные, имитируя конвертацию.
-	// В реальности нужно декодировать изображение, затем кодировать в WebP.
-	p.log.Debug("convertToWebP called (stub)", zap.Int("input_size", len(data)))
-	return data, nil
+	start := time.Now()
+	p.log.Debug("convertToWebP started", zap.Int("input_size", len(data)), zap.String("target_format", p.cfg.ConvertToFormat))
+
+	// Декодируем изображение
+	img, err := imaging.Decode(bytes.NewReader(data))
+	if err != nil {
+		p.log.Error("failed to decode image", zap.Error(err))
+		return nil, fmt.Errorf("failed to decode image: %w", err)
+	}
+
+	var output []byte
+	switch strings.ToLower(p.cfg.ConvertToFormat) {
+	case "webp":
+		// Кодируем в WebP с указанным качеством
+		quality := float32(p.cfg.Quality)
+		if quality < 0 {
+			quality = 85
+		}
+		if quality > 100 {
+			quality = 100
+		}
+		output, err = webp.EncodeRGBA(img, quality)
+		if err != nil {
+			p.log.Error("failed to encode webp", zap.Error(err))
+			return nil, fmt.Errorf("failed to encode webp: %w", err)
+		}
+	case "jpeg", "jpg":
+		// Кодируем в JPEG с указанным качеством
+		quality := p.cfg.Quality
+		if quality < 1 {
+			quality = 85
+		}
+		if quality > 100 {
+			quality = 100
+		}
+		buf := new(bytes.Buffer)
+		err = imaging.Encode(buf, img, imaging.JPEG, imaging.JPEGQuality(quality))
+		if err != nil {
+			p.log.Error("failed to encode jpeg", zap.Error(err))
+			return nil, fmt.Errorf("failed to encode jpeg: %w", err)
+		}
+		output = buf.Bytes()
+	case "png":
+		// Кодируем в PNG с дефолтным сжатием
+		buf := new(bytes.Buffer)
+		err = imaging.Encode(buf, img, imaging.PNG)
+		if err != nil {
+			p.log.Error("failed to encode png", zap.Error(err))
+			return nil, fmt.Errorf("failed to encode png: %w", err)
+		}
+		output = buf.Bytes()
+	default:
+		// Если формат не поддерживается, возвращаем исходные данные
+		p.log.Warn("unsupported target format, returning original", zap.String("format", p.cfg.ConvertToFormat))
+		output = data
+	}
+
+	elapsed := time.Since(start)
+	p.log.Debug("convertToWebP completed",
+		zap.Int("output_size", len(output)),
+		zap.Duration("elapsed", elapsed))
+	return output, nil
 }
 
-// generatePreview создаёт превью изображения с максимальной шириной maxWidth (заглушка).
-// В реальной реализации следует масштабировать изображение.
+// generatePreview создаёт превью изображения с максимальной шириной maxWidth.
+// Формат превью берётся из конфигурации (PreviewFormat), качество из PreviewQuality.
 func (p *PicStore) generatePreview(data []byte, maxWidth int) ([]byte, error) {
-	// Заглушка: возвращаем те же данные.
-	// В реальности нужно декодировать, изменить размер, закодировать.
-	p.log.Debug("generatePreview called (stub)", zap.Int("input_size", len(data)), zap.Int("maxWidth", maxWidth))
-	return data, nil
+	start := time.Now()
+	p.log.Debug("generatePreview started",
+		zap.Int("input_size", len(data)),
+		zap.Int("maxWidth", maxWidth),
+		zap.String("preview_format", p.cfg.PreviewFormat),
+		zap.Int("preview_quality", p.cfg.PreviewQuality))
+
+	// Декодируем изображение
+	img, err := imaging.Decode(bytes.NewReader(data))
+	if err != nil {
+		p.log.Error("failed to decode image for preview", zap.Error(err))
+		return nil, fmt.Errorf("failed to decode image for preview: %w", err)
+	}
+
+	// Получаем размеры исходного изображения
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	// Если изображение уже меньше maxWidth, не масштабируем
+	var resized image.Image
+	if width > maxWidth || height > maxWidth {
+		// Масштабируем, сохраняя пропорции, чтобы большая сторона была maxWidth
+		resized = imaging.Resize(img, maxWidth, 0, imaging.Lanczos)
+	} else {
+		resized = img
+	}
+
+	// Кодируем в целевой формат превью
+	quality := p.cfg.PreviewQuality
+	if quality < 1 {
+		quality = 75
+	}
+	if quality > 100 {
+		quality = 100
+	}
+	var output []byte
+	switch strings.ToLower(p.cfg.PreviewFormat) {
+	case "webp":
+		output, err = webp.EncodeRGBA(resized, float32(quality))
+		if err != nil {
+			p.log.Error("failed to encode preview webp", zap.Error(err))
+			return nil, fmt.Errorf("failed to encode preview webp: %w", err)
+		}
+	case "jpeg", "jpg":
+		buf := new(bytes.Buffer)
+		err = imaging.Encode(buf, resized, imaging.JPEG, imaging.JPEGQuality(quality))
+		if err != nil {
+			p.log.Error("failed to encode preview jpeg", zap.Error(err))
+			return nil, fmt.Errorf("failed to encode preview jpeg: %w", err)
+		}
+		output = buf.Bytes()
+	case "png":
+		compressionLevel := png.NoCompression
+		if quality >= 75 && quality <= 100 {
+			compressionLevel = png.DefaultCompression
+		}
+		if quality < 75 && quality > 50 {
+			compressionLevel = png.BestSpeed
+		}
+		if quality < 50 && quality > 25 {
+			compressionLevel = png.BestCompression
+		}
+		buf := new(bytes.Buffer)
+		err = imaging.Encode(buf, resized, imaging.PNG, imaging.PNGCompressionLevel(compressionLevel))
+		if err != nil {
+			p.log.Error("failed to encode preview png", zap.Error(err))
+			return nil, fmt.Errorf("failed to encode preview png: %w", err)
+		}
+		output = buf.Bytes()
+	default:
+		// Если формат не поддерживается, используем WebP по умолчанию
+		p.log.Warn("unsupported preview format, using webp", zap.String("format", p.cfg.PreviewFormat))
+		output, err = webp.EncodeRGBA(resized, float32(quality))
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode default webp preview: %w", err)
+		}
+	}
+
+	elapsed := time.Since(start)
+	p.log.Debug("generatePreview completed",
+		zap.Int("output_size", len(output)),
+		zap.Duration("elapsed", elapsed))
+	return output, nil
 }
