@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -85,6 +86,18 @@ type Image struct {
 	Nonce       []byte `gorm:"type:bytea"` // nonce для AES-GCM
 	Tags        string // денормализованное поле, можно удалить позже
 	TagsRel     []Tag  `gorm:"many2many:image_tags;"`
+
+	// Поля для асинхронной обработки
+	ProcessingStatus string     `gorm:"type:varchar(32);default:'pending'"`
+	ProcessingError  string     `gorm:"type:text"`
+	OriginalPath     string     `gorm:"type:varchar(512)"` // путь к исходному файлу
+	TempStoragePath  string     `gorm:"type:varchar(512)"` // путь во временном хранилище
+	ProcessedAt      *time.Time // время завершения обработки
+
+	// Поля для превью
+	PreviewPath  string `gorm:"type:varchar(512)"`
+	PreviewSalt  []byte `gorm:"type:bytea"`
+	PreviewNonce []byte `gorm:"type:bytea"`
 }
 
 type Images []*Image
