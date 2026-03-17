@@ -347,7 +347,7 @@ func (s *Server) handlerView(c *gin.Context) {
 	path := path.Join(year, month, day, hour, filename)
 
 	img, err := s.pic.GetImg(c.Request.Context(), path)
-	if err != nil {
+	if err != nil || !img.IsPublic {
 		c.HTML(http.StatusBadRequest, "view.html", gin.H{
 			"error": "Файл не найден",
 			"user":  user,
