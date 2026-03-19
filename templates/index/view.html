@@ -232,7 +232,7 @@
         {{ if and .user .user.ID (eq .user.ID .img.UserID) }}
         <hr style="margin: 20px 0;">
         <h3>Управление изображением</h3>
-        <form method="POST" action="/i/view/{{ .img.Path }}/update" style="margin-bottom: 20px;">
+        <form method="POST" action="/i/view/{{ .img.Path }}/update?tags={{ .tags | urlquery }}&key={{ .key | urlquery }}" style="margin-bottom: 20px;">
             <div style="margin-bottom: 10px;">
                 <label>
                     <input type="checkbox" name="is_public" {{ if .img.IsPublic }}checked{{ end }}>
