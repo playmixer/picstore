@@ -61,6 +61,7 @@ func (p *PicImage) GetData() []byte {
 	if err != nil {
 		return res
 	}
+	defer f.Close()
 
 	res, err = io.ReadAll(f)
 	if err != nil {
