@@ -189,7 +189,7 @@
             <span class="nav-button disabled">←</span>
         {{ end }}
         {{ if .tags }}
-            <a class="nav-button" href="/posts?tags={{ .tags }}">К списку (фильтр: {{ .tags }})</a>
+            <a class="nav-button" href="/posts?tags={{ .tags | urlquery }}">К списку (фильтр: {{ .tags }})</a>
         {{ else }}
             <a class="nav-button" href="/posts">К списку</a>
         {{ end }}

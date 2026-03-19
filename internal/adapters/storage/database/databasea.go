@@ -399,23 +399,87 @@ func (s *Storage) DelImages(ctx context.Context, userID uint, imageIDs []uint) e
 }
 
 func (s *Storage) UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error {
+	// Начинаем транзакцию
+	tx := s.db.WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return fmt.Errorf("failed to begin transaction: %w", tx.Error)
+	}
+	defer tx.Rollback()
+
+	// Обновляем основные поля изображения
 	updateData := make(map[string]interface{})
 	if isPublic != nil {
 		updateData["is_public"] = *isPublic
 	}
 	if tags != nil {
 		updateData["tags"] = *tags
-		// TODO: обновить связи тегов (но пока просто обновляем строку)
 	}
 	if len(updateData) == 0 {
+		tx.Rollback()
 		return nil
 	}
-	result := s.db.WithContext(ctx).Model(&models.Image{}).Where("id = ? AND user_id = ?", imageID, userID).Updates(updateData)
+	result := tx.Model(&models.Image{}).Where("id = ? AND user_id = ?", imageID, userID).Updates(updateData)
 	if result.Error != nil {
 		return fmt.Errorf("failed update image: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
+		tx.Rollback()
 		return apperror.ErrNotFoundData
+	}
+
+	// Если обновляются теги, пересоздаём связи
+	if tags != nil {
+		// Удаляем все существующие связи ImageTag для этого изображения
+		if err := tx.Where("image_id = ?", imageID).Delete(&models.ImageTag{}).Error; err != nil {
+			return fmt.Errorf("failed to delete old image-tag links: %w", err)
+		}
+
+		// Обрабатываем новые теги (аналогично NewImage)
+		tagStr := *tags
+		if tagStr != "" {
+			tagNames := strings.Fields(tagStr) // разделяем по пробелам
+			validTagRegex := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+			for _, tagName := range tagNames {
+				tagName = strings.TrimSpace(tagName)
+				if tagName == "" {
+					continue
+				}
+				tagName = strings.ToLower(tagName) // нормализуем к нижнему регистру
+				if !validTagRegex.MatchString(tagName) {
+					// Пропускаем невалидные теги
+					continue
+				}
+				// Ищем или создаём тег (регистронезависимо)
+				tag := &models.Tag{}
+				result := tx.Where("name = ?", tagName).First(tag)
+				if result.Error != nil && errors.Is(result.Error, gorm.ErrRecordNotFound) {
+					tag.Name = tagName
+					if err := tx.Create(tag).Error; err != nil {
+						return fmt.Errorf("failed create tag: %w", err)
+					}
+				} else if result.Error != nil {
+					return fmt.Errorf("failed find tag: %w", result.Error)
+				}
+				// Создаём связь
+				imageTag := &models.ImageTag{
+					ImageID: imageID,
+					TagID:   tag.ID,
+				}
+				if err := tx.Create(imageTag).Error; err != nil {
+					// Игнорируем ошибку дублирования связи (маловероятно, но на всякий случай)
+					var pgErr *pgconn.PgError
+					if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+						continue
+					}
+					return fmt.Errorf("failed create image-tag link: %w", err)
+				}
+			}
+		}
+	}
+
+	// Фиксируем транзакцию
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
 }

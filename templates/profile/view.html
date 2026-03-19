@@ -196,7 +196,7 @@
             <span class="nav-button disabled">←</span>
         {{ end }}
         {{ if .tags }}
-            <a class="nav-button" href="/i/posts?tags={{ .tags }}">К списку (фильтр: {{ .tags }})</a>
+            <a class="nav-button" href="/i/posts?tags={{ .tags | urlquery }}">К списку (фильтр: {{ .tags }})</a>
         {{ else }}
             <a class="nav-button" href="/i/posts">К списку</a>
         {{ end }}
@@ -240,7 +240,7 @@
         {{ if and .user .user.ID (eq .user.ID .img.UserID) }}
         <hr style="margin: 20px 0;">
         <h3>Управление изображением</h3>
-        <form method="POST" action="/i/view/{{ .img.Path }}/update?tags={{ .tags }}&key={{ .key }}" style="margin-bottom: 20px;">
+        <form method="POST" action="/i/view/{{ .img.Path }}/update" style="margin-bottom: 20px;">
             <div style="margin-bottom: 10px;">
                 <label>
                     <input type="checkbox" name="is_public" {{ if .img.IsPublic }}checked{{ end }}>
