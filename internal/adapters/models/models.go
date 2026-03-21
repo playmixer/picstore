@@ -98,6 +98,9 @@ type Image struct {
 	PreviewPath  string `gorm:"type:varchar(512)"`
 	PreviewSalt  []byte `gorm:"type:bytea"`
 	PreviewNonce []byte `gorm:"type:bytea"`
+
+	// Статистика просмотров
+	Views uint `gorm:"default:0"`
 }
 
 type Images []*Image

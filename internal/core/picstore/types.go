@@ -18,6 +18,7 @@ type PicImage struct {
 	IsPublic    bool
 	UserID      uint
 	Tags        string
+	Views       uint      // количество просмотров
 	IsEncrypted bool      `json:"-"`
 	Salt        []byte    `json:"-"`
 	Nonce       []byte    `json:"-"`

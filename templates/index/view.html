@@ -229,6 +229,8 @@
         </div>
         {{ end }}
 
+        <p><strong>Просмотры:</strong> {{ .img.Views }}</p>
+
         {{ if and .user .user.ID (eq .user.ID .img.UserID) }}
         <hr style="margin: 20px 0;">
         <h3>Управление изображением</h3>

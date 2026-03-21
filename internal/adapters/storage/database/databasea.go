@@ -483,3 +483,17 @@ func (s *Storage) UpdateImage(ctx context.Context, userID uint, imageID uint, is
 	}
 	return nil
 }
+
+// IncrementViews увеличивает счётчик просмотров изображения на указанное значение.
+func (s *Storage) IncrementViews(ctx context.Context, imageID uint, delta uint) error {
+	result := s.db.WithContext(ctx).Model(&models.Image{}).
+		Where("id = ?", imageID).
+		Update("views", gorm.Expr("views + ?", delta))
+	if result.Error != nil {
+		return fmt.Errorf("failed to increment views: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return apperror.ErrNotFoundData
+	}
+	return nil
+}

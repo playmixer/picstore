@@ -24,21 +24,24 @@ func newTestPicStore(t *testing.T) *PicStore {
 	t.Helper()
 
 	cfg := Config{
-		PicPath:          t.TempDir(),
-		CacheTTL:         time.Minute,
-		EnableEncryption: false,
-		MaxFileSize:      5 * 1024 * 1024,
-		AsyncProcessing:  false,
-		TempStorageTTL:   time.Hour,
-		KeyStorageTTL:    time.Minute,
-		WorkerPoolSize:   1,
-		TaskQueueSize:    10,
-		ConvertToFormat:  "webp",
-		Quality:          85,
-		GeneratePreview:  true,
-		PreviewMaxSize:   640,
-		PreviewFormat:    "webp",
-		PreviewQuality:   75,
+		PicPath:            t.TempDir(),
+		CacheTTL:           time.Minute,
+		EnableEncryption:   false,
+		MaxFileSize:        5 * 1024 * 1024,
+		AsyncProcessing:    false,
+		TempStorageTTL:     time.Hour,
+		KeyStorageTTL:      time.Minute,
+		WorkerPoolSize:     1,
+		TaskQueueSize:      10,
+		ConvertToFormat:    "webp",
+		Quality:            85,
+		GeneratePreview:    true,
+		PreviewMaxSize:     640,
+		PreviewFormat:      "webp",
+		PreviewQuality:     75,
+		ViewCooldownPeriod: time.Hour,
+		ViewSyncInterval:   5 * time.Minute,
+		ViewRedisPrefix:    "views:",
 	}
 
 	// Создаём логгер с выводом в stdout (для тестов)
@@ -97,6 +100,10 @@ func (m *mockStore) UpdateImage(ctx context.Context, userID uint, imageID uint, 
 	return nil
 }
 
+func (m *mockStore) IncrementViews(ctx context.Context, imageID uint, delta uint) error {
+	return nil
+}
+
 // mockCache реализует интерфейс cache для тестов.
 type mockCache struct{}
 
@@ -114,6 +121,23 @@ func (m *mockCache) SetH(ctx context.Context, key string, value types.ObjInterfa
 }
 func (m *mockCache) Remove(ctx context.Context, key string) error {
 	return nil
+}
+func (m *mockCache) Incr(ctx context.Context, key string) (int64, error) {
+	return 0, nil
+}
+func (m *mockCache) SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	return false, nil
+}
+func (m *mockCache) Keys(ctx context.Context, pattern string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockCache) GetUint64(ctx context.Context, key string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockCache) IncrBy(ctx context.Context, key string, delta int64) (int64, error) {
+	return 0, nil
 }
 
 // smallPNGBase64 - это PNG 1x1 пиксель (чёрный).
@@ -194,10 +218,11 @@ type controllableStore struct {
 	newImageWithStatusFunc func(ctx context.Context, userID uint, path, previewPath string, isPublic bool, tags string,
 		isEncrypted bool, salt, nonce, previewSalt, previewNonce []byte,
 		processingStatus, originalPath, tempStoragePath string) (*models.Image, error)
-	getImageFunc    func(ctx context.Context, path string) (*models.Image, error)
-	getImagesFunc   func(ctx context.Context) ([]*models.Image, error)
-	updateImageFunc func(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
-	delImagesFunc   func(ctx context.Context, userID uint, imageIDs []uint) error
+	getImageFunc       func(ctx context.Context, path string) (*models.Image, error)
+	getImagesFunc      func(ctx context.Context) ([]*models.Image, error)
+	updateImageFunc    func(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
+	delImagesFunc      func(ctx context.Context, userID uint, imageIDs []uint) error
+	incrementViewsFunc func(ctx context.Context, imageID uint, delta uint) error
 }
 
 func (c *controllableStore) NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error) {
@@ -292,13 +317,25 @@ func (c *controllableStore) UpdateImage(ctx context.Context, userID uint, imageI
 	return nil
 }
 
+func (c *controllableStore) IncrementViews(ctx context.Context, imageID uint, delta uint) error {
+	if c.incrementViewsFunc != nil {
+		return c.incrementViewsFunc(ctx, imageID, delta)
+	}
+	return nil
+}
+
 // controllableCache реализует интерфейс cache с возможностью задавать поведение.
 type controllableCache struct {
-	getFunc    func(ctx context.Context, key string) ([]byte, error)
-	setFunc    func(ctx context.Context, key string, value []byte, ttl time.Duration) error
-	getHFunc   func(ctx context.Context, key string, obj types.ObjInterface) error
-	setHFunc   func(ctx context.Context, key string, value types.ObjInterface, ttl time.Duration) error
-	removeFunc func(ctx context.Context, key string) error
+	getFunc       func(ctx context.Context, key string) ([]byte, error)
+	setFunc       func(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	getHFunc      func(ctx context.Context, key string, obj types.ObjInterface) error
+	setHFunc      func(ctx context.Context, key string, value types.ObjInterface, ttl time.Duration) error
+	removeFunc    func(ctx context.Context, key string) error
+	incrFunc      func(ctx context.Context, key string) (int64, error)
+	setNXFunc     func(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
+	keysFunc      func(ctx context.Context, pattern string) ([]string, error)
+	getUint64Func func(ctx context.Context, key string) (uint64, error)
+	incrByFunc    func(ctx context.Context, key string, delta int64) (int64, error)
 }
 
 func (c *controllableCache) Get(ctx context.Context, key string) ([]byte, error) {
@@ -336,26 +373,64 @@ func (c *controllableCache) Remove(ctx context.Context, key string) error {
 	return nil
 }
 
+func (c *controllableCache) Incr(ctx context.Context, key string) (int64, error) {
+	if c.incrFunc != nil {
+		return c.incrFunc(ctx, key)
+	}
+	return 0, nil
+}
+
+func (c *controllableCache) SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	if c.setNXFunc != nil {
+		return c.setNXFunc(ctx, key, value, ttl)
+	}
+	return false, nil
+}
+
+func (c *controllableCache) Keys(ctx context.Context, pattern string) ([]string, error) {
+	if c.keysFunc != nil {
+		return c.keysFunc(ctx, pattern)
+	}
+	return nil, nil
+}
+
+func (c *controllableCache) GetUint64(ctx context.Context, key string) (uint64, error) {
+	if c.getUint64Func != nil {
+		return c.getUint64Func(ctx, key)
+	}
+	return 0, nil
+}
+
+func (c *controllableCache) IncrBy(ctx context.Context, key string, delta int64) (int64, error) {
+	if c.incrByFunc != nil {
+		return c.incrByFunc(ctx, key, delta)
+	}
+	return 0, nil
+}
+
 // newTestPicStoreWithMocks создаёт PicStore с переданными store и cache.
 func newTestPicStoreWithMocks(t *testing.T, store store, cache cache) *PicStore {
 	t.Helper()
 
 	cfg := Config{
-		PicPath:          t.TempDir(),
-		CacheTTL:         time.Minute,
-		EnableEncryption: false,
-		MaxFileSize:      5 * 1024 * 1024,
-		AsyncProcessing:  false,
-		TempStorageTTL:   time.Hour,
-		KeyStorageTTL:    time.Minute,
-		WorkerPoolSize:   1,
-		TaskQueueSize:    10,
-		ConvertToFormat:  "webp",
-		Quality:          85,
-		GeneratePreview:  true,
-		PreviewMaxSize:   640,
-		PreviewFormat:    "webp",
-		PreviewQuality:   75,
+		PicPath:            t.TempDir(),
+		CacheTTL:           time.Minute,
+		EnableEncryption:   false,
+		MaxFileSize:        5 * 1024 * 1024,
+		AsyncProcessing:    false,
+		TempStorageTTL:     time.Hour,
+		KeyStorageTTL:      time.Minute,
+		WorkerPoolSize:     1,
+		TaskQueueSize:      10,
+		ConvertToFormat:    "webp",
+		Quality:            85,
+		GeneratePreview:    true,
+		PreviewMaxSize:     640,
+		PreviewFormat:      "webp",
+		PreviewQuality:     75,
+		ViewCooldownPeriod: time.Hour,
+		ViewSyncInterval:   5 * time.Minute,
+		ViewRedisPrefix:    "views:",
 	}
 
 	ctx := context.Background()
@@ -1286,21 +1361,24 @@ func TestGetUserPosts(t *testing.T) {
 func TestDecryptImage(t *testing.T) {
 	// Создаём PicStore с включённым шифрованием
 	cfg := Config{
-		PicPath:          t.TempDir(),
-		EnableEncryption: true,
-		CacheTTL:         time.Minute,
-		MaxFileSize:      5 * 1024 * 1024,
-		AsyncProcessing:  false,
-		TempStorageTTL:   time.Hour,
-		KeyStorageTTL:    time.Minute,
-		WorkerPoolSize:   1,
-		TaskQueueSize:    10,
-		ConvertToFormat:  "webp",
-		Quality:          85,
-		GeneratePreview:  true,
-		PreviewMaxSize:   640,
-		PreviewFormat:    "webp",
-		PreviewQuality:   75,
+		PicPath:            t.TempDir(),
+		EnableEncryption:   true,
+		CacheTTL:           time.Minute,
+		MaxFileSize:        5 * 1024 * 1024,
+		AsyncProcessing:    false,
+		TempStorageTTL:     time.Hour,
+		KeyStorageTTL:      time.Minute,
+		WorkerPoolSize:     1,
+		TaskQueueSize:      10,
+		ConvertToFormat:    "webp",
+		Quality:            85,
+		GeneratePreview:    true,
+		PreviewMaxSize:     640,
+		PreviewFormat:      "webp",
+		PreviewQuality:     75,
+		ViewCooldownPeriod: time.Hour,
+		ViewSyncInterval:   5 * time.Minute,
+		ViewRedisPrefix:    "views:",
 	}
 	ctx := context.Background()
 	lgr, err := logger.New(ctx, logger.SetLevel("debug"), logger.SetLogPath(""))
@@ -1395,21 +1473,24 @@ func TestGetMaxFileSize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
-				PicPath:          t.TempDir(),
-				MaxFileSize:      tt.size,
-				CacheTTL:         time.Minute,
-				EnableEncryption: false,
-				AsyncProcessing:  false,
-				TempStorageTTL:   time.Hour,
-				KeyStorageTTL:    time.Minute,
-				WorkerPoolSize:   1,
-				TaskQueueSize:    10,
-				ConvertToFormat:  "webp",
-				Quality:          85,
-				GeneratePreview:  true,
-				PreviewMaxSize:   640,
-				PreviewFormat:    "webp",
-				PreviewQuality:   75,
+				PicPath:            t.TempDir(),
+				MaxFileSize:        tt.size,
+				CacheTTL:           time.Minute,
+				EnableEncryption:   false,
+				AsyncProcessing:    false,
+				TempStorageTTL:     time.Hour,
+				KeyStorageTTL:      time.Minute,
+				WorkerPoolSize:     1,
+				TaskQueueSize:      10,
+				ConvertToFormat:    "webp",
+				Quality:            85,
+				GeneratePreview:    true,
+				PreviewMaxSize:     640,
+				PreviewFormat:      "webp",
+				PreviewQuality:     75,
+				ViewCooldownPeriod: time.Hour,
+				ViewSyncInterval:   5 * time.Minute,
+				ViewRedisPrefix:    "views:",
 			}
 			ctx := context.Background()
 			lgr, err := logger.New(ctx, logger.SetLevel("debug"), logger.SetLogPath(""))

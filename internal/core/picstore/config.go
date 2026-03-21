@@ -24,4 +24,9 @@ type Config struct {
 	PreviewMaxSize  int    `env:"PREVIEW_MAX_SIZE" envDefault:"640"` // максимальный размер по большей стороне
 	PreviewFormat   string `env:"PREVIEW_FORMAT" envDefault:"webp"`  // формат превью
 	PreviewQuality  int    `env:"PREVIEW_QUALITY" envDefault:"75"`   // качество превью
+
+	// Настройки статистики просмотров
+	ViewCooldownPeriod time.Duration `env:"VIEW_COOLDOWN" envDefault:"1h"`
+	ViewSyncInterval   time.Duration `env:"VIEW_SYNC_INTERVAL" envDefault:"5m"`
+	ViewRedisPrefix    string        `env:"VIEW_REDIS_PREFIX" envDefault:"views:"`
 }

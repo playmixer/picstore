@@ -3,6 +3,7 @@ package redisdb
 import (
 	"context"
 	"picstore/internal/adapters/storage/types"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -42,4 +43,29 @@ func (r *RedisDB) SetH(ctx context.Context, key string, value types.ObjInterface
 
 func (r *RedisDB) Remove(ctx context.Context, key string) error {
 	return r.Client.Del(ctx, key).Err()
+}
+
+func (r *RedisDB) Incr(ctx context.Context, key string) (int64, error) {
+	return r.Client.Incr(ctx, key).Result()
+}
+
+func (r *RedisDB) SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	return r.Client.SetNX(ctx, key, value, ttl).Result()
+}
+
+func (r *RedisDB) Keys(ctx context.Context, pattern string) ([]string, error) {
+	return r.Client.Keys(ctx, pattern).Result()
+}
+
+func (r *RedisDB) IncrBy(ctx context.Context, key string, delta int64) (int64, error) {
+	return r.Client.IncrBy(ctx, key, delta).Result()
+}
+
+func (r *RedisDB) GetUint64(ctx context.Context, key string) (uint64, error) {
+	val, err := r.Client.Get(ctx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	// Преобразуем строку в uint64
+	return strconv.ParseUint(val, 10, 64)
 }

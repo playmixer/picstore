@@ -374,6 +374,13 @@ func (s *Server) handlerView(c *gin.Context) {
 		return
 	}
 
+	// Учитываем просмотр (только для HTML страницы, не для скачивания файла)
+	userID := uint(0)
+	if user != nil && user.ID != 0 {
+		userID = user.ID
+	}
+	_, _ = s.pic.RecordView(c.Request.Context(), img.ID, userID)
+
 	var images []*picstore.PicImage
 	if tagsParam == "" {
 		images, err = s.pic.GetPosts(c.Request.Context())
@@ -595,6 +602,9 @@ func (s *Server) handlerUserView(c *gin.Context) {
 		c.Data(http.StatusOK, "image/"+img.Extension, img.GetData())
 		return
 	}
+
+	// Учитываем просмотр (только для HTML страницы, не для скачивания файла)
+	_, _ = s.pic.RecordView(c.Request.Context(), img.ID, user.ID)
 
 	// Получаем все изображения пользователя
 	allPosts, err := s.pic.GetUserPosts(c.Request.Context(), user.ID)

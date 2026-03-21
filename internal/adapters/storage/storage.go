@@ -41,6 +41,7 @@ type Storage interface {
 	DelImage(ctx context.Context, userID uint, imageID uint) error
 	DelImages(ctx context.Context, userID uint, imageIDs []uint) error
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
+	IncrementViews(ctx context.Context, imageID uint, delta uint) error
 
 	Close() error
 }
@@ -63,6 +64,11 @@ type Cache interface {
 	GetH(ctx context.Context, key string, obj types.ObjInterface) (err error)
 	SetH(ctx context.Context, key string, value types.ObjInterface, ttl time.Duration) error
 	Remove(ctx context.Context, key string) error
+	Incr(ctx context.Context, key string) (int64, error)
+	IncrBy(ctx context.Context, key string, delta int64) (int64, error)
+	SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
+	Keys(ctx context.Context, pattern string) ([]string, error)
+	GetUint64(ctx context.Context, key string) (uint64, error)
 }
 
 func NewCache(cfg ConfigCache) (Cache, error) {

@@ -38,6 +38,11 @@ type cache interface {
 	GetH(ctx context.Context, key string, obj types.ObjInterface) (err error)
 	SetH(ctx context.Context, key string, value types.ObjInterface, ttl time.Duration) error
 	Remove(ctx context.Context, key string) error
+	Incr(ctx context.Context, key string) (int64, error)
+	IncrBy(ctx context.Context, key string, delta int64) (int64, error)
+	SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
+	Keys(ctx context.Context, pattern string) ([]string, error)
+	GetUint64(ctx context.Context, key string) (uint64, error)
 }
 
 type store interface {
@@ -55,6 +60,7 @@ type store interface {
 	DelImage(ctx context.Context, userID uint, imageID uint) error
 	DelImages(ctx context.Context, userID uint, imageIDs []uint) error
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
+	IncrementViews(ctx context.Context, imageID uint, delta uint) error
 }
 
 type self interface {
@@ -72,6 +78,7 @@ type self interface {
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
 	GetMaxFileSize() int64
+	RecordView(ctx context.Context, imageID uint, userID uint) (bool, error)
 }
 
 type PicStore struct {
@@ -85,6 +92,7 @@ type PicStore struct {
 	wg          sync.WaitGroup
 	ctx         context.Context
 	cancel      context.CancelFunc
+	viewTracker *ViewTracker
 }
 
 var (
@@ -107,6 +115,15 @@ func New(ctx context.Context, cfg Config, log *logger.Logger, store store, cache
 		ctx:       ctx,
 		cancel:    cancel,
 	}
+	// Создаём и запускаем трекер просмотров
+	viewCfg := ViewTrackerConfig{
+		CooldownPeriod: cfg.ViewCooldownPeriod,
+		SyncInterval:   cfg.ViewSyncInterval,
+		RedisKeyPrefix: cfg.ViewRedisPrefix,
+	}
+	p.viewTracker = NewViewTracker(store, cache, log, viewCfg)
+	p.viewTracker.Start(ctx)
+
 	// Запускаем воркеры
 	for i := 0; i < cfg.WorkerPoolSize; i++ {
 		p.wg.Add(1)
@@ -354,6 +371,10 @@ func (p *PicStore) processImageTask(ctx context.Context, imageID uint, encryptio
 
 // Stop останавливает воркеры и освобождает ресурсы.
 func (p *PicStore) Stop() {
+	// Останавливаем трекер просмотров
+	if p.viewTracker != nil {
+		p.viewTracker.Stop()
+	}
 	p.cancel()
 	p.wg.Wait()
 	close(p.taskQueue)
@@ -598,6 +619,7 @@ func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tag
 		IsEncrypted: img.IsEncrypted,
 		Salt:        img.Salt,
 		Nonce:       img.Nonce,
+		Views:       img.Views,
 	}, nil
 }
 
@@ -631,6 +653,7 @@ func (p *PicStore) GetImg(ctx context.Context, path string) (*PicImage, error) {
 		IsEncrypted: img.IsEncrypted,
 		Salt:        img.Salt,
 		Nonce:       img.Nonce,
+		Views:       img.Views,
 	}, nil
 }
 
@@ -670,6 +693,7 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, s
 			IsEncrypted: line.IsEncrypted,
 			Salt:        line.Salt,
 			Nonce:       line.Nonce,
+			Views:       line.Views,
 		}
 		if filter(image) {
 			filtered = append(filtered, image)
@@ -927,6 +951,15 @@ func (p *PicStore) DecryptImage(ctx context.Context, path string, key string) ([
 // GetMaxFileSize возвращает максимально допустимый размер файла в байтах.
 func (p *PicStore) GetMaxFileSize() int64 {
 	return p.cfg.MaxFileSize
+}
+
+// RecordView регистрирует просмотр изображения для указанного пользователя.
+// Возвращает true, если просмотр засчитан (не был заблокирован кулдауном), иначе false.
+func (p *PicStore) RecordView(ctx context.Context, imageID uint, userID uint) (bool, error) {
+	if p.viewTracker == nil {
+		return false, errors.New("view tracker not initialized")
+	}
+	return p.viewTracker.RecordView(ctx, imageID, userID)
 }
 
 // convertToWebP конвертирует изображение в целевой формат (из конфигурации).
