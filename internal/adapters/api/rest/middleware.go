@@ -30,9 +30,16 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		_, err := s.checkAuth(ctx)
 		if err != nil {
-
+			authURL, err := s.buildAuthURL(ctx)
+			if err != nil {
+				s.log.Error("failed to build auth URL", zap.Error(err))
+				ctx.Header("Cache-Control", "no-cache")
+				ctx.Redirect(http.StatusMovedPermanently, s.ssoAuthURL)
+				ctx.Abort()
+				return
+			}
 			ctx.Header("Cache-Control", "no-cache")
-			ctx.Redirect(http.StatusMovedPermanently, s.ssoAuthURL)
+			ctx.Redirect(http.StatusMovedPermanently, authURL)
 			ctx.Abort()
 		}
 		ctx.Next()

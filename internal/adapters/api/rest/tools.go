@@ -1,10 +1,14 @@
 package rest
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"net/url"
 	"picstore/internal/adapters/models"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +22,125 @@ func (s *Server) resetCookie(c *gin.Context) {
 		c.SetCookie(CookieJWT, "", s.cookieLifeTime, "/", domain, s.cookieSecure, true)
 		c.SetCookie(CookieRefreshToken, "", s.cookieLifeTime, "/", domain, s.cookieSecure, true)
 	}
+}
+
+// generateState создает криптографически случайную строку для state.
+func (s *Server) generateState() (string, error) {
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// setAuthStateCookie сохраняет state в cookie.
+func (s *Server) setAuthStateCookie(c *gin.Context, state string) {
+	for _, domain := range s.cookieDomain {
+		c.SetCookie(CookieState, state, s.cookieLifeTime, "/", domain, s.cookieSecure, true)
+		s.log.Debug("set auth state cookie", zap.String("state", state), zap.String("domain", domain))
+	}
+}
+
+// getAuthStateCookie возвращает сохраненный state из cookie.
+func (s *Server) getAuthStateCookie(c *gin.Context) string {
+	cookie, err := c.Request.Cookie(CookieState)
+	if err != nil {
+		return ""
+	}
+	return cookie.Value
+}
+
+// clearAuthStateCookie удаляет cookie состояния.
+func (s *Server) clearAuthStateCookie(c *gin.Context) {
+	for _, domain := range s.cookieDomain {
+		c.SetCookie(CookieState, "", -1, "/", domain, s.cookieSecure, true)
+		s.log.Debug("clear auth state cookie", zap.String("domain", domain))
+	}
+}
+
+// setOriginalURLCookie сохраняет оригинальный URL для возврата после авторизации.
+func (s *Server) setOriginalURLCookie(c *gin.Context, originalURL string) {
+	if len(s.cookieDomain) == 0 {
+		c.SetCookie(CookieOriginalURL, originalURL, 300, "/", "", s.cookieSecure, true)
+		s.log.Debug("set original URL cookie (no domain)", zap.String("url", originalURL))
+		return
+	}
+	for _, domain := range s.cookieDomain {
+		c.SetCookie(CookieOriginalURL, originalURL, 300, "/", domain, s.cookieSecure, true)
+		s.log.Debug("set original URL cookie", zap.String("url", originalURL), zap.String("domain", domain))
+	}
+}
+
+// getOriginalURLCookie возвращает сохраненный оригинальный URL.
+func (s *Server) getOriginalURLCookie(c *gin.Context) string {
+	cookie, err := c.Request.Cookie(CookieOriginalURL)
+	if err != nil {
+		s.log.Debug("getOriginalURLCookie: no cookie found", zap.Error(err))
+		return ""
+	}
+	s.log.Debug("getOriginalURLCookie", zap.String("value", cookie.Value))
+	return cookie.Value
+}
+
+// clearOriginalURLCookie удаляет cookie оригинального URL.
+func (s *Server) clearOriginalURLCookie(c *gin.Context) {
+	if len(s.cookieDomain) == 0 {
+		c.SetCookie(CookieOriginalURL, "", -1, "/", "", s.cookieSecure, true)
+		s.log.Debug("clear original URL cookie (no domain)")
+		return
+	}
+	for _, domain := range s.cookieDomain {
+		c.SetCookie(CookieOriginalURL, "", -1, "/", domain, s.cookieSecure, true)
+		s.log.Debug("clear original URL cookie", zap.String("domain", domain))
+	}
+}
+
+// buildAuthURL возвращает URL для авторизации с добавленными параметрами state и callback.
+func (s *Server) buildAuthURL(c *gin.Context) (string, error) {
+	state, err := s.generateState()
+	if err != nil {
+		return "", err
+	}
+	s.log.Debug("generated state", zap.String("state", state))
+	s.setAuthStateCookie(c, state)
+	originalURL := c.Request.URL.String()
+	s.log.Debug("buildAuthURL initial originalURL", zap.String("originalURL", originalURL))
+	// Если текущий путь является частью потока авторизации, не сохраняем его как оригинальный URL,
+	// чтобы избежать рекурсии. Вместо этого используем корень или referer.
+	if strings.HasPrefix(originalURL, "/sso/") {
+		// Попробуем взять referer из заголовка
+		referer := c.Request.Referer()
+		s.log.Debug("buildAuthURL referer", zap.String("referer", referer), zap.String("baseURL", s.baseURL))
+		if referer != "" && !strings.HasPrefix(referer, "/sso/") {
+			// Извлекаем путь из referer, если он относится к нашему домену
+			if strings.HasPrefix(referer, s.baseURL) {
+				originalURL = strings.TrimPrefix(referer, s.baseURL)
+				if originalURL == "" {
+					originalURL = "/"
+				}
+			} else {
+				// referer с другого домена, используем корень
+				originalURL = "/"
+			}
+		} else {
+			originalURL = "/"
+		}
+	}
+	s.log.Debug("original URL for redirect", zap.String("originalURL", originalURL))
+	s.setOriginalURLCookie(c, originalURL)
+
+	u, err := url.Parse(s.ssoAuthURL)
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	q.Set("state", state)
+	q.Set("callback", s.baseURL+"/sso/login") // callback endpoint
+	u.RawQuery = q.Encode()
+	authURL := u.String()
+	s.log.Debug("built auth URL", zap.String("authURL", authURL))
+	return authURL, nil
 }
 
 func empty[T string | int](s T) bool {

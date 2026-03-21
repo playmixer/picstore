@@ -26,6 +26,8 @@ const (
 
 	CookieJWT          string = "singleauth_token" // поле хранения токента
 	CookieRefreshToken string = "singleauth_refresh"
+	CookieState        string = "auth_state"   // состояние для защиты от CSRF
+	CookieOriginalURL  string = "original_url" // оригинальный URL для возврата после авторизации
 )
 
 var (
@@ -117,6 +119,10 @@ func New(pic PicStore, auth AuthManager, cache Cache, log *logger.Logger, option
 		srv.certData = data
 	}
 
+	if len(srv.cookieDomain) == 0 {
+		srv.cookieDomain = []string{""}
+	}
+
 	return srv
 }
 
@@ -201,8 +207,15 @@ func (s *Server) SetupRouter() *gin.Engine {
 		image.Static("/", s.imgPath)
 	}
 	r.GET("/sso/auth", func(ctx *gin.Context) {
+		authURL, err := s.buildAuthURL(ctx)
+		if err != nil {
+			s.log.Error("failed to build auth URL", zap.Error(err))
+			ctx.Header("Cache-Control", "no-cache")
+			ctx.Redirect(http.StatusMovedPermanently, s.ssoAuthURL)
+			return
+		}
 		ctx.Header("Cache-Control", "no-cache")
-		ctx.Redirect(http.StatusMovedPermanently, s.ssoAuthURL)
+		ctx.Redirect(http.StatusMovedPermanently, authURL)
 	})
 	r.GET("/sso/login", s.handlerSSOLogin)
 	r.GET("/sso/logout", func(ctx *gin.Context) {

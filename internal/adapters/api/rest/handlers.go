@@ -26,6 +26,34 @@ var (
 )
 
 func (s *Server) handlerSSOLogin(ctx *gin.Context) {
+	// Проверка state для защиты от CSRF
+	stateParam := ctx.Query("state")
+	// Декодируем процентное кодирование (например, %3D -> =)
+	decodedState, err := url.QueryUnescape(stateParam)
+	if err != nil {
+		// Если ошибка декодирования, используем оригинальный параметр
+		decodedState = stateParam
+	}
+	savedState := s.getAuthStateCookie(ctx)
+	s.log.Debug("handlerSSOLogin state check",
+		zap.String("stateParam", stateParam),
+		zap.String("decodedState", decodedState),
+		zap.String("savedState", savedState),
+	)
+	if decodedState == "" || savedState == "" || decodedState != savedState {
+		s.log.Warn("invalid state parameter",
+			zap.String("stateParam", stateParam),
+			zap.String("decodedState", decodedState),
+			zap.String("savedState", savedState),
+		)
+		ctx.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"error": "Invalid state parameter",
+		})
+		return
+	}
+	// Очищаем cookie состояния сразу после проверки, чтобы предотвратить повторное использование
+	s.clearAuthStateCookie(ctx)
+
 	bParams, err := base64.RawStdEncoding.DecodeString(ctx.Query("paramsURI"))
 	if err != nil {
 		ctx.HTML(http.StatusBadRequest, "error.html", gin.H{
@@ -102,7 +130,26 @@ func (s *Server) handlerSSOLogin(ctx *gin.Context) {
 		ctx.SetCookie(CookieJWT, token, s.cookieLifeTime, "/", domain, s.cookieSecure, true)
 	}
 	ctx.Header("Cache-Control", "no-cache")
-	ctx.Redirect(http.StatusMovedPermanently, "/")
+
+	// Редирект на оригинальный URL, сохранённый перед авторизацией
+	originalURL := s.getOriginalURLCookie(ctx)
+	s.clearOriginalURLCookie(ctx)
+	s.log.Debug("handlerSSOLogin originalURL from cookie",
+		zap.String("originalURL", originalURL),
+	)
+	if originalURL == "" {
+		originalURL = "/"
+	}
+	// Декодируем процентное кодирование (на случай, если URL был закодирован при сохранении)
+	decodedURL, err := url.QueryUnescape(originalURL)
+	if err != nil {
+		s.log.Warn("failed to decode originalURL, using as-is", zap.Error(err))
+		decodedURL = originalURL
+	}
+	s.log.Debug("handlerSSOLogin redirecting to",
+		zap.String("redirectURL", decodedURL),
+	)
+	ctx.Redirect(http.StatusMovedPermanently, decodedURL)
 }
 
 func (s *Server) handlerMain(c *gin.Context) {
