@@ -85,6 +85,7 @@ type Server struct {
 	ssoAuthCert    string
 	certData       []byte
 	imgPath        string
+	maxUploadItems int
 }
 
 type Option func(s *Server)
@@ -92,12 +93,13 @@ type Option func(s *Server)
 // New создает Server.
 func New(pic PicStore, auth AuthManager, cache Cache, log *logger.Logger, options ...Option) *Server {
 	srv := &Server{
-		pic:       pic,
-		auth:      auth,
-		cache:     cache,
-		log:       log,
-		secretKey: []byte("rest_secret_key"),
-		imgPath:   "./tmp",
+		pic:            pic,
+		auth:           auth,
+		cache:          cache,
+		log:            log,
+		secretKey:      []byte("rest_secret_key"),
+		imgPath:        "./tmp",
+		maxUploadItems: 10,
 	}
 	srv.s.Addr = "localhost:8080"
 
@@ -182,6 +184,12 @@ func SetSSOAuth(url, cert string) Option {
 	return func(s *Server) {
 		s.ssoAuthURL = url
 		s.ssoAuthCert = cert
+	}
+}
+
+func SetMaxUploadItems(max int) Option {
+	return func(s *Server) {
+		s.maxUploadItems = max
 	}
 }
 

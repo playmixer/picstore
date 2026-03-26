@@ -218,6 +218,11 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 			}
 			files = []*multipart.FileHeader{file}
 		}
+		// Проверка ограничения количества файлов
+		if len(files) > s.maxUploadItems {
+			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape(fmt.Sprintf("превышено максимальное количество файлов (максимум %d)", s.maxUploadItems))))
+			return
+		}
 		if len(files) == 1 {
 			_, err := s.pic.UploadImgFile(c.Request.Context(), user.ID, files[0], isPublic, tags, encryptionKey)
 			if err != nil {
@@ -256,6 +261,11 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 				return
 			}
 			urls = []string{link}
+		}
+		// Проверка ограничения количества URL
+		if len(urls) > s.maxUploadItems {
+			c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?error=%s", url.QueryEscape(fmt.Sprintf("превышено максимальное количество URL (максимум %d)", s.maxUploadItems))))
+			return
 		}
 		if len(urls) == 1 {
 			_, err := s.pic.UploadImgURL(c.Request.Context(), user.ID, urls[0], isPublic, tags, encryptionKey)

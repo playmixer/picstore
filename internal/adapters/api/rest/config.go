@@ -13,6 +13,7 @@ type Config struct {
 	CookieLifeTime int        `env:"COOKIE_LIFETIME" envDefault:"0"`
 	SSOAuthURL     string     `env:"SSO_AUTH_URL"`
 	SSOAuthCert    string     `evn:"SSO_AUTH_CERT_FILE"`
+	MaxUploadItems int        `env:"MAX_UPLOAD_ITEMS" envDefault:"10"`
 }
 
 func (s stringList) List() []string {

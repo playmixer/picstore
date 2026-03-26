@@ -75,6 +75,7 @@ func run() error {
 		rest.SetCookieDomain(cfg.API.CookieDomain.List()),
 		rest.SetCookieLifeTime(cfg.API.CookieLifeTime),
 		rest.SetSSOAuth(cfg.API.SSOAuthURL, cfg.API.SSOAuthCert),
+		rest.SetMaxUploadItems(cfg.API.MaxUploadItems),
 	)
 
 	lgr.Info("Starting")
