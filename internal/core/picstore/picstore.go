@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"picstore/internal/adapters/models"
 	"picstore/internal/adapters/storage/types"
+	"picstore/internal/core/abtest"
 	"strings"
 	"sync"
 	"time"
@@ -30,8 +31,14 @@ const (
 
 	nsImagesAll   string = "images:all"
 	nsPostsPublic string = "posts:public"
+
+	// Circuit breaker settings
+	cacheErrorThreshold  int           = 5               // количество ошибок подряд для отключения кэша
+	cacheDisableDuration time.Duration = 5 * time.Minute // время отключения кэша
 )
 
+// cache определяет интерфейс для кэширования данных (например, Redis).
+// Включает базовые операции Get/Set, хэш-операции, инкремент и удаление.
 type cache interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
@@ -45,6 +52,8 @@ type cache interface {
 	GetUint64(ctx context.Context, key string) (uint64, error)
 }
 
+// store определяет интерфейс для работы с хранилищем данных (база данных).
+// Включает CRUD операции для изображений, обновление статусов обработки и пагинацию.
 type store interface {
 	NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error)
 	NewImageWithStatus(ctx context.Context, userID uint, path, previewPath string, isPublic bool, tags string,
@@ -61,8 +70,12 @@ type store interface {
 	DelImages(ctx context.Context, userID uint, imageIDs []uint) error
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	IncrementViews(ctx context.Context, imageID uint, delta uint) error
+	GetPostsPage(ctx context.Context, userID uint, isPublic bool, includeTags, excludeTags []string, limit, offset int) ([]*models.Image, int64, error)
+	GetFilteredImageIDs(ctx context.Context, userID uint, includeTags, excludeTags []string, limit, offset int) ([]uint, error)
 }
 
+// self определяет публичный интерфейс PicStore, который реализуется структурой PicStore.
+// Используется для обеспечения контракта и удобства тестирования.
 type self interface {
 	UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*PicImage, error)
 	UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string, encryptionKey string) (*PicImage, error)
@@ -79,8 +92,11 @@ type self interface {
 	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
 	GetMaxFileSize() int64
 	RecordView(ctx context.Context, imageID uint, userID uint) (bool, error)
+	GetNavigationContext(ctx context.Context, imageID uint, windowSize int, includeTags, excludeTags []string, currentUserID uint) (*NavigationContext, error)
 }
 
+// PicStore — основная структура сервиса, управляющая загрузкой, обработкой, кэшированием и навигацией изображений.
+// Содержит зависимости на хранилище, кэш, логгер, конфигурацию, трекер просмотров и менеджер A/B тестирования.
 type PicStore struct {
 	store       store
 	log         *logger.Logger
@@ -93,6 +109,46 @@ type PicStore struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	viewTracker *ViewTracker
+	abManager   *abtest.Manager // A/B тестирование
+
+	// Circuit breaker for cache
+	cacheMu            sync.RWMutex
+	cacheErrors        int       // consecutive cache errors
+	cacheDisabledUntil time.Time // time when cache will be re-enabled
+}
+
+// isCacheEnabled проверяет, включён ли кэш (circuit breaker не сработал).
+func (p *PicStore) isCacheEnabled() bool {
+	p.cacheMu.RLock()
+	defer p.cacheMu.RUnlock()
+	if p.cacheErrors >= cacheErrorThreshold && time.Now().Before(p.cacheDisabledUntil) {
+		return false
+	}
+	return true
+}
+
+// recordCacheError увеличивает счётчик ошибок кэша и при необходимости отключает кэш.
+func (p *PicStore) recordCacheError() {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+	p.cacheErrors++
+	if p.cacheErrors >= cacheErrorThreshold {
+		p.cacheDisabledUntil = time.Now().Add(cacheDisableDuration)
+		p.log.Warn("cache disabled due to consecutive errors",
+			zap.Int("errors", p.cacheErrors),
+			zap.Time("disabled_until", p.cacheDisabledUntil))
+	}
+}
+
+// recordCacheSuccess сбрасывает счётчик ошибок кэша.
+func (p *PicStore) recordCacheSuccess() {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+	if p.cacheErrors > 0 {
+		p.log.Debug("cache errors reset", zap.Int("previous_errors", p.cacheErrors))
+		p.cacheErrors = 0
+		p.cacheDisabledUntil = time.Time{}
+	}
 }
 
 var (
@@ -124,6 +180,15 @@ func New(ctx context.Context, cfg Config, log *logger.Logger, store store, cache
 	p.viewTracker = NewViewTracker(store, cache, log, viewCfg)
 	p.viewTracker.Start(ctx)
 
+	// Инициализируем менеджер A/B тестирования
+	p.abManager = abtest.NewManager(log)
+	// Регистрируем эксперимент для навигационного кэширования
+	exp := abtest.NewExperiment("navigation_prefetch", log)
+	exp.AddVariant("control", 50)    // контрольная группа (без предзагрузки)
+	exp.AddVariant("prefetch", 30)   // предзагрузка соседних изображений
+	exp.AddVariant("aggressive", 20) // агрессивная предзагрузка (широкое окно)
+	p.abManager.RegisterExperiment(exp)
+
 	// Запускаем воркеры
 	for i := 0; i < cfg.WorkerPoolSize; i++ {
 		p.wg.Add(1)
@@ -132,6 +197,8 @@ func New(ctx context.Context, cfg Config, log *logger.Logger, store store, cache
 	return p, nil
 }
 
+// worker — фоновый воркер, выполняющий задачи из очереди taskQueue.
+// Каждый воркер работает в отдельной горутине и обрабатывает задачи до остановки контекста.
 func (p *PicStore) worker(id int) {
 	defer p.wg.Done()
 	for {
@@ -380,6 +447,9 @@ func (p *PicStore) Stop() {
 	close(p.taskQueue)
 }
 
+// UploadImgFile загружает изображение из multipart файла.
+// Проверяет размер файла, читает данные и сохраняет изображение (синхронно или асинхронно).
+// Возвращает метаданные загруженного изображения или ошибку.
 func (p *PicStore) UploadImgFile(ctx context.Context, userID uint, f *multipart.FileHeader, isPublic bool, tags string, encryptionKey string) (*PicImage, error) {
 	// Проверка размера файла
 	if p.cfg.MaxFileSize > 0 && f.Size > p.cfg.MaxFileSize {
@@ -400,6 +470,9 @@ func (p *PicStore) UploadImgFile(ctx context.Context, userID uint, f *multipart.
 	return p.storeImg(ctx, userID, isPublic, tags, encryptionKey, data, extension)
 }
 
+// UploadImgURL загружает изображение по URL.
+// Скачивает изображение, проверяет размер и сохраняет (синхронно или асинхронно).
+// Возвращает метаданные загруженного изображения или ошибку.
 func (p *PicStore) UploadImgURL(ctx context.Context, userID uint, url string, isPublic bool, tags string, encryptionKey string) (*PicImage, error) {
 	data, err := downloadImage(url)
 	if err != nil {
@@ -410,6 +483,9 @@ func (p *PicStore) UploadImgURL(ctx context.Context, userID uint, url string, is
 	return p.storeImg(ctx, userID, isPublic, tags, encryptionKey, data, extension)
 }
 
+// UploadMultipleImgFiles загружает несколько изображений из multipart файлов.
+// Каждый файл обрабатывается последовательно; ошибки отдельных файлов не прерывают загрузку остальных.
+// Возвращает слайс успешно загруженных изображений и агрегированную ошибку, если были сбои.
 func (p *PicStore) UploadMultipleImgFiles(ctx context.Context, userID uint, files []*multipart.FileHeader, isPublic bool, tags string, encryptionKey string) ([]*PicImage, error) {
 	results := make([]*PicImage, 0, len(files))
 	var errs []error
@@ -428,6 +504,9 @@ func (p *PicStore) UploadMultipleImgFiles(ctx context.Context, userID uint, file
 	return results, nil
 }
 
+// UploadMultipleImgURLs загружает несколько изображений по URL.
+// Каждый URL обрабатывается последовательно; ошибки отдельных URL не прерывают загрузку остальных.
+// Возвращает слайс успешно загруженных изображений и агрегированную ошибку, если были сбои.
 func (p *PicStore) UploadMultipleImgURLs(ctx context.Context, userID uint, urls []string, isPublic bool, tags string, encryptionKey string) ([]*PicImage, error) {
 	results := make([]*PicImage, 0, len(urls))
 	var errs []error
@@ -445,6 +524,7 @@ func (p *PicStore) UploadMultipleImgURLs(ctx context.Context, userID uint, urls 
 	return results, nil
 }
 
+// tagsFromImage возвращает строку тегов изображения, объединяя теги из связанных записей (TagsRel) или используя поле Tags.
 func tagsFromImage(img *models.Image) string {
 	if len(img.TagsRel) == 0 {
 		return img.Tags
@@ -496,6 +576,10 @@ func containsAllTags(imageTags string, searchTags []string) bool {
 	return true
 }
 
+// storeImg сохраняет изображение в файловую систему и создаёт запись в БД.
+// Выполняет шифрование (если включено и передан ключ), сохраняет временный файл,
+// создаёт запись с состоянием pending (при асинхронной обработке) или сразу завершённую.
+// Возвращает метаданны PicImage или ошибку.
 func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tags string, encryptionKey string, data []byte, extension string) (*PicImage, error) {
 	// Проверка размера данных
 	if p.cfg.MaxFileSize > 0 && int64(len(data)) > p.cfg.MaxFileSize {
@@ -611,6 +695,7 @@ func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tag
 		ID:          img.ID,
 		Filename:    newFilename,
 		Path:        storeFullFilename,
+		FullPath:    tmpFullFilename,
 		PreviewPath: "", // пока превью нет, после обработки заполнится
 		Extension:   extensify(extension),
 		IsPublic:    img.IsPublic,
@@ -623,6 +708,9 @@ func (p *PicStore) storeImg(ctx context.Context, userID uint, isPublic bool, tag
 	}, nil
 }
 
+// GetImg возвращает метаданные изображения по его относительному пути.
+// Если изображение ещё обрабатывается (статус pending/processing), возвращает метаданные с временным путём.
+// Возвращает ошибку, если изображение не найдено.
 func (p *PicStore) GetImg(ctx context.Context, path string) (*PicImage, error) {
 	img, err := p.store.GetImage(ctx, path)
 	if err != nil {
@@ -637,7 +725,7 @@ func (p *PicStore) GetImg(ctx context.Context, path string) (*PicImage, error) {
 
 	// Определяем путь к файлу: если есть временный путь, используем его, иначе обычный.
 	filePath := img.Path
-	if img.TempStoragePath != "" {
+	if img.TempStoragePath != "" && filePath == "" {
 		filePath = img.TempStoragePath
 	}
 	fullPath := filepath.Join(p.picturePath, filePath)
@@ -645,7 +733,8 @@ func (p *PicStore) GetImg(ctx context.Context, path string) (*PicImage, error) {
 	return &PicImage{
 		ID:          img.ID,
 		IsPublic:    img.IsPublic,
-		Path:        fullPath,
+		Path:        filePath,
+		FullPath:    fullPath,
 		PreviewPath: img.PreviewPath,
 		Extension:   extensify(filepath.Ext(path)),
 		UserID:      img.UserID,
@@ -657,17 +746,36 @@ func (p *PicStore) GetImg(ctx context.Context, path string) (*PicImage, error) {
 	}, nil
 }
 
+// getImages возвращает все изображения из хранилища с применением фильтра и опцией пропуска зашифрованных.
+// Использует двухуровневое кэширование с circuit breaker для graceful degradation.
 func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, skipEncrypted bool) ([]*PicImage, error) {
 	var err error
 	data := models.Images{}
 	p.locker[nsImagesAll].Lock()
-	if err = p.cache.GetH(ctx, nsImagesAll, &data); err != nil {
+	// Пытаемся получить из кэша, если кэш включен
+	if p.isCacheEnabled() {
+		if err = p.cache.GetH(ctx, nsImagesAll, &data); err == nil {
+			p.recordCacheSuccess()
+		} else {
+			p.recordCacheError()
+			// Ошибка кэша, продолжаем загрузку из базы
+		}
+	}
+	// Если кэш отключен или данные не получены, загружаем из базы
+	if len(data) == 0 {
 		data, err = p.store.GetImages(ctx)
 		if err != nil {
+			p.locker[nsImagesAll].Unlock()
 			return []*PicImage{}, fmt.Errorf("failed gettings images: %w", err)
 		}
-		if err := p.cache.SetH(ctx, nsImagesAll, &data, p.cfg.CacheTTL); err != nil {
-			p.log.Error("failed cacheing images", zap.Error(err))
+		// Кэшируем, если кэш включен
+		if p.isCacheEnabled() {
+			if err := p.cache.SetH(ctx, nsImagesAll, &data, p.cfg.CacheTTL); err != nil {
+				p.recordCacheError()
+				p.log.Error("failed cacheing images", zap.Error(err))
+			} else {
+				p.recordCacheSuccess()
+			}
 		}
 	}
 	p.locker[nsImagesAll].Unlock()
@@ -682,10 +790,12 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, s
 		if skipEncrypted && line.IsEncrypted {
 			continue
 		}
+		fullPath := filepath.Join(p.picturePath, line.Path)
 		image := &PicImage{
 			ID:          line.ID,
 			IsPublic:    line.IsPublic,
 			Path:        line.Path,
+			FullPath:    fullPath,
 			PreviewPath: line.PreviewPath,
 			Extension:   extensify(filepath.Ext(line.Path)),
 			UserID:      line.UserID,
@@ -713,18 +823,38 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, s
 	return filtered, nil
 }
 
+// GetPosts возвращает все публичные изображения (IsPublic = true), исключая зашифрованные.
+// Использует двухуровневое кэширование (Redis) с circuit breaker для graceful degradation.
+// Возвращает слайс PicImage с установленными связями Prev/Next.
 func (p *PicStore) GetPosts(ctx context.Context) ([]*PicImage, error) {
 	var err error
 	data := picImages{}
 
 	p.locker[nsPostsPublic].Lock()
-	if err = p.cache.GetH(ctx, nsPostsPublic, &data); err != nil {
+	// Пытаемся получить из кэша, если кэш включен
+	if p.isCacheEnabled() {
+		if err = p.cache.GetH(ctx, nsPostsPublic, &data); err == nil {
+			p.recordCacheSuccess()
+		} else {
+			p.recordCacheError()
+			// Ошибка кэша, продолжаем загрузку из базы
+		}
+	}
+	// Если кэш отключен или данные не получены, загружаем из базы
+	if len(data) == 0 {
 		data, err = p.getImages(ctx, func(pi *PicImage) bool { return pi.IsPublic == true }, true)
 		if err != nil {
+			p.locker[nsPostsPublic].Unlock()
 			return nil, fmt.Errorf("failed getting public posts: %w", err)
 		}
-		if err := p.cache.SetH(ctx, nsPostsPublic, &data, p.cfg.CacheTTL); err != nil {
-			p.log.Error("failed cacheing posts", zap.Error(err))
+		// Кэшируем, если кэш включен
+		if p.isCacheEnabled() {
+			if err := p.cache.SetH(ctx, nsPostsPublic, &data, p.cfg.CacheTTL); err != nil {
+				p.recordCacheError()
+				p.log.Error("failed cacheing posts", zap.Error(err))
+			} else {
+				p.recordCacheSuccess()
+			}
 		}
 	}
 	p.locker[nsPostsPublic].Unlock()
@@ -778,45 +908,95 @@ func (p *PicStore) GetPostsPage(ctx context.Context, page, pageSize int, tags st
 	key := fmt.Sprintf("posts:page:%d:size:%d:tags:%s", page, pageSize, tags)
 	var data picImages
 
-	// Пытаемся получить из кэша
-	if err := p.cache.GetH(ctx, key, &data); err == nil {
-		return data, nil
+	// Пытаемся получить из кэша, если кэш включен
+	if p.isCacheEnabled() {
+		if err := p.cache.GetH(ctx, key, &data); err == nil {
+			p.recordCacheSuccess()
+			return data, nil
+		} else {
+			p.recordCacheError()
+		}
 	}
 
-	// Получаем все посты (с фильтром по тегам если нужно)
-	var allPosts []*PicImage
-	var err error
-	if tags == "" {
-		allPosts, err = p.GetPosts(ctx)
-	} else {
-		allPosts, err = p.GetPostsWithTags(ctx, tags)
+	// Разбираем теги на включающие и исключающие
+	searchTags := strings.Fields(tags)
+	var includeTags, excludeTags []string
+	for _, st := range searchTags {
+		if strings.HasPrefix(st, "-") && len(st) > 1 {
+			excludeTags = append(excludeTags, strings.ToLower(st[1:]))
+		} else {
+			includeTags = append(includeTags, strings.ToLower(st))
+		}
 	}
+
+	// Вычисляем limit и offset
+	limit := pageSize
+	offset := (page - 1) * pageSize
+
+	// Получаем страницу из хранилища (публичные посты, userID = 0)
+	images, _, err := p.store.GetPostsPage(ctx, 0, true, includeTags, excludeTags, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get posts page from store: %w", err)
 	}
 
-	// Применяем пагинацию
-	start := (page - 1) * pageSize
-	if start >= len(allPosts) {
-		return []*PicImage{}, nil
+	// Преобразуем models.Image в PicImage
+	pagePosts := make([]*PicImage, 0, len(images))
+	for _, img := range images {
+		// Пропускаем неудачные обработки
+		if img.ProcessingStatus == "failed" {
+			continue
+		}
+		// Пропускаем зашифрованные изображения (публичные посты не должны быть зашифрованы, но на всякий случай)
+		if img.IsEncrypted {
+			continue
+		}
+		fullPath := filepath.Join(p.picturePath, img.Path)
+		pic := &PicImage{
+			ID:          img.ID,
+			IsPublic:    img.IsPublic,
+			Path:        img.Path,
+			FullPath:    fullPath,
+			PreviewPath: img.PreviewPath,
+			Extension:   extensify(filepath.Ext(img.Path)),
+			UserID:      img.UserID,
+			Tags:        tagsFromImage(img),
+			IsEncrypted: img.IsEncrypted,
+			Salt:        img.Salt,
+			Nonce:       img.Nonce,
+			Views:       img.Views,
+		}
+		pagePosts = append(pagePosts, pic)
 	}
-	end := start + pageSize
-	if end > len(allPosts) {
-		end = len(allPosts)
-	}
-	pagePosts := allPosts[start:end]
 
-	// Преобразуем в picImages для кэширования
-	cacheData := picImages(pagePosts)
-	// Кэшируем страницу с тем же TTL, что и общий кэш
-	if err := p.cache.SetH(ctx, key, &cacheData, p.cfg.CacheTTL); err != nil {
-		p.log.Error("failed caching page", zap.Error(err))
+	// Устанавливаем связи Prev/Next в пределах страницы
+	for i := range pagePosts {
+		if i > 0 {
+			pagePosts[i].Prev = pagePosts[i-1]
+		}
+		if i < len(pagePosts)-1 {
+			pagePosts[i].Next = pagePosts[i+1]
+		}
+	}
+
+	// Кэшируем страницу, если кэш включен
+	if p.isCacheEnabled() {
+		cacheData := picImages(pagePosts)
+		if err := p.cache.SetH(ctx, key, &cacheData, p.cfg.CacheTTL); err != nil {
+			p.recordCacheError()
+			p.log.Error("failed caching page", zap.Error(err))
+		} else {
+			p.recordCacheSuccess()
+		}
 	}
 	return pagePosts, nil
 }
 
 // invalidateCache очищает кэши images:all и posts:public
 func (p *PicStore) invalidateCache(ctx context.Context) {
+	// Если кэш отключен, не пытаемся удалять ключи
+	if !p.isCacheEnabled() {
+		return
+	}
 	p.locker[nsImagesAll].Lock()
 	_ = p.cache.Remove(ctx, nsImagesAll) // удаляем кэш
 	p.locker[nsImagesAll].Unlock()
@@ -936,7 +1116,11 @@ func (p *PicStore) DecryptImage(ctx context.Context, path string, key string) ([
 		return nil, fmt.Errorf("image is encrypted but missing nonce")
 	}
 	// Читаем зашифрованные данные из файла
-	encryptedData, err := os.ReadFile(img.Path)
+	filePath := img.FullPath
+	if filePath == "" {
+		filePath = img.Path
+	}
+	encryptedData, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read encrypted file: %w", err)
 	}
@@ -960,6 +1144,251 @@ func (p *PicStore) RecordView(ctx context.Context, imageID uint, userID uint) (b
 		return false, errors.New("view tracker not initialized")
 	}
 	return p.viewTracker.RecordView(ctx, imageID, userID)
+}
+
+// GetNavigationContext возвращает окно изображений вокруг указанного изображения для навигации.
+// Использует фильтрацию по тегам (includeTags, excludeTags) и определяет контекст (публичный/приватный) на основе текущего изображения и текущего пользователя.
+// Размер окна задаётся параметром windowSize (количество изображений в каждую сторону).
+// Возвращает NavigationContext с текущим изображением, предыдущими и следующими изображениями в пределах окна,
+// а также информацию о наличии изображений за пределами окна.
+func (p *PicStore) GetNavigationContext(ctx context.Context, imageID uint, windowSize int, includeTags, excludeTags []string, currentUserID uint) (*NavigationContext, error) {
+	start := time.Now()
+	p.log.Debug("GetNavigationContext started",
+		zap.Uint("imageID", imageID),
+		zap.Int("windowSize", windowSize),
+		zap.Strings("includeTags", includeTags),
+		zap.Strings("excludeTags", excludeTags),
+		zap.Uint("currentUserID", currentUserID))
+
+	// Получаем текущее изображение
+	img, err := p.store.GetImageByID(ctx, imageID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current image: %w", err)
+	}
+	if img == nil {
+		return nil, fmt.Errorf("image %d not found", imageID)
+	}
+
+	// Определяем контекст фильтрации на основе прав текущего пользователя
+	var userID uint
+	var isPublic bool
+	if currentUserID == img.UserID {
+		// Пользователь является владельцем изображения — используем приватный контекст
+		userID = img.UserID
+		isPublic = false
+	} else if img.IsPublic {
+		// Изображение публичное, а пользователь не владелец — используем публичный контекст
+		userID = 0
+		isPublic = true
+	} else {
+		// Изображение приватное и пользователь не владелец — доступ запрещён
+		p.log.Warn("access denied to private image for non‑owner",
+			zap.Uint("imageID", imageID),
+			zap.Uint("ownerID", img.UserID),
+			zap.Uint("currentUserID", currentUserID))
+		// Возвращаем контекст только с текущим изображением (без навигации)
+		currentPic, err := p.imageModelToPic(img)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert current image: %w", err)
+		}
+		return &NavigationContext{
+			Current:  currentPic,
+			Prev:     nil,
+			Next:     nil,
+			Total:    1,
+			HasPrev:  false,
+			HasNext:  false,
+			Window:   windowSize,
+			Filter:   strings.Join(includeTags, " "),
+			UserID:   img.UserID,
+			IsPublic: false,
+		}, nil
+	}
+
+	// Получаем все ID изображений, соответствующих фильтру, с ограничением (чтобы не загружать слишком много)
+	// Максимальное количество ID: windowSize*2 + 1 + запас (например, 1000)
+	maxIDs := windowSize*2 + 1 + 1000
+	allIDs, err := p.store.GetFilteredImageIDs(ctx, userID, includeTags, excludeTags, maxIDs, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get filtered image IDs: %w", err)
+	}
+	// Логируем первые 10 ID (или меньше, если всего меньше)
+	firstN := 10
+	if len(allIDs) < firstN {
+		firstN = len(allIDs)
+	}
+	first10 := allIDs[:firstN]
+	p.log.Debug("GetFilteredImageIDs returned",
+		zap.Int("count", len(allIDs)),
+		zap.Uints("first_10", first10),
+		zap.Uint("current_imageID", imageID),
+		zap.Uint("userID", userID),
+		zap.Bool("isPublic", isPublic))
+
+	// Находим позицию текущего изображения в списке
+	currentPos := -1
+	for i, id := range allIDs {
+		if id == imageID {
+			currentPos = i
+			break
+		}
+	}
+	if currentPos == -1 {
+		// Текущее изображение не попало в фильтр (например, из-за тегов) – возвращаем контекст только с текущим
+		p.log.Warn("current image not found in filtered IDs, returning minimal context",
+			zap.Uint("imageID", imageID),
+			zap.Uints("allIDs", allIDs))
+		// Загружаем текущее изображение как PicImage
+		currentPic, err := p.imageModelToPic(img)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert current image: %w", err)
+		}
+		return &NavigationContext{
+			Current:  currentPic,
+			Prev:     nil,
+			Next:     nil,
+			Total:    1,
+			HasPrev:  false,
+			HasNext:  false,
+			Window:   windowSize,
+			Filter:   strings.Join(includeTags, " "),
+			UserID:   userID,
+			IsPublic: isPublic,
+		}, nil
+	}
+	p.log.Debug("current position in filtered IDs",
+		zap.Int("position", currentPos),
+		zap.Int("total", len(allIDs)))
+
+	// Вычисляем границы окна
+	startIdx := currentPos - windowSize
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	endIdx := currentPos + windowSize + 1 // +1 чтобы включить текущее изображение в Next? Нет, текущее отдельно.
+	if endIdx > len(allIDs) {
+		endIdx = len(allIDs)
+	}
+
+	// ID предыдущих (до текущего, не включая текущее)
+	prevIDs := []uint{}
+	if startIdx < currentPos {
+		prevIDs = allIDs[startIdx:currentPos]
+		// Переворачиваем, чтобы ближайшие были первыми
+		for i, j := 0, len(prevIDs)-1; i < j; i, j = i+1, j-1 {
+			prevIDs[i], prevIDs[j] = prevIDs[j], prevIDs[i]
+		}
+	}
+	// ID следующих (после текущего)
+	nextIDs := []uint{}
+	if currentPos+1 < endIdx {
+		nextIDs = allIDs[currentPos+1 : endIdx]
+	}
+
+	// Загружаем полные данные для текущего изображения
+	currentPic, err := p.imageModelToPic(img)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert current image: %w", err)
+	}
+
+	// Загружаем предыдущие изображения
+	prevImages := make([]*PicImage, 0, len(prevIDs))
+	for _, id := range prevIDs {
+		imgModel, err := p.store.GetImageByID(ctx, id)
+		if err != nil {
+			p.log.Warn("failed to load previous image, skipping",
+				zap.Uint("imageID", id),
+				zap.Error(err))
+			continue
+		}
+		pic, err := p.imageModelToPic(imgModel)
+		if err != nil {
+			p.log.Warn("failed to convert previous image, skipping",
+				zap.Uint("imageID", id),
+				zap.Error(err))
+			continue
+		}
+		prevImages = append(prevImages, pic)
+	}
+
+	// Загружаем следующие изображения
+	nextImages := make([]*PicImage, 0, len(nextIDs))
+	for _, id := range nextIDs {
+		imgModel, err := p.store.GetImageByID(ctx, id)
+		if err != nil {
+			p.log.Warn("failed to load next image, skipping",
+				zap.Uint("imageID", id),
+				zap.Error(err))
+			continue
+		}
+		pic, err := p.imageModelToPic(imgModel)
+		if err != nil {
+			p.log.Warn("failed to convert next image, skipping",
+				zap.Uint("imageID", id),
+				zap.Error(err))
+			continue
+		}
+		nextImages = append(nextImages, pic)
+	}
+
+	// Определяем, есть ли изображения за пределами окна
+	hasPrev := startIdx > 0
+	hasNext := endIdx < len(allIDs)
+
+	// Общее количество изображений в фильтре
+	total := len(allIDs)
+
+	ctxResult := &NavigationContext{
+		Current:  currentPic,
+		Prev:     prevImages,
+		Next:     nextImages,
+		Total:    total,
+		HasPrev:  hasPrev,
+		HasNext:  hasNext,
+		Window:   windowSize,
+		Filter:   strings.Join(includeTags, " "),
+		UserID:   userID,
+		IsPublic: isPublic,
+	}
+
+	p.log.Debug("GetNavigationContext completed",
+		zap.Uint("imageID", imageID),
+		zap.Int("prevCount", len(prevImages)),
+		zap.Int("nextCount", len(nextImages)),
+		zap.Int("total", total),
+		zap.Bool("hasPrev", hasPrev),
+		zap.Bool("hasNext", hasNext),
+		zap.Duration("elapsed", time.Since(start)))
+
+	return ctxResult, nil
+}
+
+// imageModelToPic преобразует models.Image в PicImage.
+func (p *PicStore) imageModelToPic(img *models.Image) (*PicImage, error) {
+	if img == nil {
+		return nil, errors.New("image is nil")
+	}
+	// Определяем путь к файлу: если есть временный путь, используем его, иначе обычный.
+	filePath := img.Path
+	if img.TempStoragePath != "" && filePath == "" {
+		filePath = img.TempStoragePath
+	}
+	fullPath := filepath.Join(p.picturePath, filePath)
+
+	return &PicImage{
+		ID:          img.ID,
+		IsPublic:    img.IsPublic,
+		Path:        filePath,
+		FullPath:    fullPath,
+		PreviewPath: img.PreviewPath,
+		Extension:   extensify(filepath.Ext(img.Path)),
+		UserID:      img.UserID,
+		Tags:        tagsFromImage(img),
+		IsEncrypted: img.IsEncrypted,
+		Salt:        img.Salt,
+		Nonce:       img.Nonce,
+		Views:       img.Views,
+	}, nil
 }
 
 // convertToWebP конвертирует изображение в целевой формат (из конфигурации).
@@ -1116,4 +1545,14 @@ func (p *PicStore) generatePreview(data []byte, maxWidth int) ([]byte, error) {
 		zap.Int("output_size", len(output)),
 		zap.Duration("elapsed", elapsed))
 	return output, nil
+}
+
+// GetExperimentVariant возвращает вариант эксперимента для заданного ключа.
+// Если эксперимент не найден, возвращает "control".
+func (p *PicStore) GetExperimentVariant(experimentName, key string) string {
+	if p.abManager == nil {
+		p.log.Warn("A/B manager not initialized")
+		return "control"
+	}
+	return p.abManager.Assign(experimentName, key)
 }

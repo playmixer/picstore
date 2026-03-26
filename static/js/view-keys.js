@@ -20,6 +20,7 @@
 
         // Navigate to URL if link is active
         function navigateTo(url) {
+            console.log('navigateTo called with url:', url);
             if (url) {
                 // Save fullscreen state before navigating
                 const container = document.querySelector('.view-image-container');
@@ -28,7 +29,10 @@
                 } else {
                     sessionStorage.setItem('autoFullscreen', 'false');
                 }
+                console.log('Setting window.location.href to', url);
                 window.location.href = url;
+            } else {
+                console.warn('navigateTo called with empty url');
             }
         }
 
@@ -96,17 +100,25 @@
         // Intercept click on navigation links to preserve fullscreen state
         if (prevButton && prevButton.tagName === 'A') {
             prevButton.addEventListener('click', function(e) {
+                console.log('Prev button clicked, disabled?', isDisabled(prevButton));
                 if (!isDisabled(prevButton)) {
                     e.preventDefault();
+                    console.log('Navigating to:', prevButton.href);
                     navigateTo(prevButton.href);
+                } else {
+                    console.log('Prev button is disabled, click ignored');
                 }
             });
         }
         if (nextButton && nextButton.tagName === 'A') {
             nextButton.addEventListener('click', function(e) {
+                console.log('Next button clicked, disabled?', isDisabled(nextButton));
                 if (!isDisabled(nextButton)) {
                     e.preventDefault();
+                    console.log('Navigating to:', nextButton.href);
                     navigateTo(nextButton.href);
+                } else {
+                    console.log('Next button is disabled, click ignored');
                 }
             });
         }
@@ -121,5 +133,7 @@
         console.log('Keyboard and touch navigation loaded. Use ←/→ or swipe to navigate images.');
         console.log('Prev button:', prevButton ? (isDisabled(prevButton) ? 'disabled' : 'active') : 'not found');
         console.log('Next button:', nextButton ? (isDisabled(nextButton) ? 'disabled' : 'active') : 'not found');
+        if (prevButton) console.log('Prev button href:', prevButton.href);
+        if (nextButton) console.log('Next button href:', nextButton.href);
     });
 })();

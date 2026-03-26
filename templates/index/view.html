@@ -181,7 +181,7 @@
         }
     }
 </style>
-<div class="view-container">
+<div class="view-container" data-image-id="{{ .img.ID }}">
     <div class="view-navigation">
         {{ if .prev }}
             <a id="prev-button" class="nav-button" href="{{ .prev }}#view">←</a>
@@ -199,6 +199,8 @@
             <span class="nav-button disabled">→</span>
         {{ end }}
     </div>
+    <!-- DEBUG: prev={{ .prev }}, next={{ .next }} -->
+    <div style="display:none;" id="debug-nav" data-prev="{{ .prev }}" data-next="{{ .next }}"></div>
     <div class="view-image-container">
         {{ if .img.IsEncrypted }}
         <div class="encrypted-placeholder" style="width: 100%; max-width: 800px; margin: 0 auto; background-color: #f0f0f0; border-radius: 8px; padding: 40px; text-align: center;">
@@ -255,5 +257,6 @@
 </div>
 <script src="/js/view-keys.js"></script>
 <script src="/js/fullscreen.js"></script>
+<script src="/js/navigation-manager.js"></script>
 {{ template "footer.html" . }}
 {{ end }}

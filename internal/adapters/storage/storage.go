@@ -42,6 +42,8 @@ type Storage interface {
 	DelImages(ctx context.Context, userID uint, imageIDs []uint) error
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	IncrementViews(ctx context.Context, imageID uint, delta uint) error
+	GetPostsPage(ctx context.Context, userID uint, isPublic bool, includeTags, excludeTags []string, limit, offset int) ([]*models.Image, int64, error)
+	GetFilteredImageIDs(ctx context.Context, userID uint, includeTags, excludeTags []string, limit, offset int) ([]uint, error)
 
 	Close() error
 }

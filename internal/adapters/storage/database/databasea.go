@@ -446,7 +446,6 @@ func (s *Storage) UpdateImage(ctx context.Context, userID uint, imageID uint, is
 				}
 				tagName = strings.ToLower(tagName) // нормализуем к нижнему регистру
 				if !validTagRegex.MatchString(tagName) {
-					// Пропускаем невалидные теги
 					continue
 				}
 				// Ищем или создаём тег (регистронезависимо)
@@ -466,7 +465,7 @@ func (s *Storage) UpdateImage(ctx context.Context, userID uint, imageID uint, is
 					TagID:   tag.ID,
 				}
 				if err := tx.Create(imageTag).Error; err != nil {
-					// Игнорируем ошибку дублирования связи (маловероятно, но на всякий случай)
+					// Игнорируем ошибку дублирования связи
 					var pgErr *pgconn.PgError
 					if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
 						continue
@@ -477,23 +476,101 @@ func (s *Storage) UpdateImage(ctx context.Context, userID uint, imageID uint, is
 		}
 	}
 
-	// Фиксируем транзакцию
 	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return fmt.Errorf("failed commit transaction: %w", err)
 	}
 	return nil
 }
 
-// IncrementViews увеличивает счётчик просмотров изображения на указанное значение.
 func (s *Storage) IncrementViews(ctx context.Context, imageID uint, delta uint) error {
-	result := s.db.WithContext(ctx).Model(&models.Image{}).
-		Where("id = ?", imageID).
-		Update("views", gorm.Expr("views + ?", delta))
+	result := s.db.WithContext(ctx).Model(&models.Image{}).Where("id = ?", imageID).UpdateColumn("views", gorm.Expr("views + ?", delta))
 	if result.Error != nil {
-		return fmt.Errorf("failed to increment views: %w", result.Error)
+		return fmt.Errorf("failed increment views: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return apperror.ErrNotFoundData
 	}
 	return nil
+}
+
+func (s *Storage) GetFilteredImageIDs(ctx context.Context, userID uint, includeTags, excludeTags []string, limit, offset int) ([]uint, error) {
+	// Базовый запрос: изображения пользователя (или публичные)
+	query := s.db.WithContext(ctx).Model(&models.Image{}).Select("images.id")
+	if userID != 0 {
+		query = query.Where("user_id = ?", userID)
+	} else {
+		query = query.Where("is_public = ?", true)
+		// В публичном контексте исключаем зашифрованные изображения и неудачные обработки
+		query = query.Where("is_encrypted = ?", false)
+	}
+	// Исключаем неудачные обработки для всех контекстов
+	query = query.Where("processing_status IS NULL OR processing_status != ?", "failed")
+
+	// Фильтр includeTags: изображения должны иметь все указанные теги
+	for _, tag := range includeTags {
+		subQuery := s.db.WithContext(ctx).Model(&models.ImageTag{}).
+			Select("image_id").
+			Joins("JOIN tags ON image_tags.tag_id = tags.id").
+			Where("tags.name = ?", strings.ToLower(tag))
+		query = query.Where("images.id IN (?)", subQuery)
+	}
+
+	// Фильтр excludeTags: изображения не должны иметь ни одного из указанных тегов
+	if len(excludeTags) > 0 {
+		subQuery := s.db.WithContext(ctx).Model(&models.ImageTag{}).
+			Select("image_id").
+			Joins("JOIN tags ON image_tags.tag_id = tags.id").
+			Where("tags.name IN ?", excludeTags)
+		query = query.Where("images.id NOT IN (?)", subQuery)
+	}
+
+	// Пагинация
+	query = query.Order("images.created_at DESC").Limit(limit).Offset(offset)
+
+	var ids []uint
+	err := query.Pluck("id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get filtered image IDs: %w", err)
+	}
+	return ids, nil
+}
+
+func (s *Storage) GetPostsPage(ctx context.Context, userID uint, isPublic bool, includeTags, excludeTags []string, limit, offset int) ([]*models.Image, int64, error) {
+	query := s.db.WithContext(ctx).Model(&models.Image{}).Preload("TagsRel")
+	if userID != 0 {
+		query = query.Where("user_id = ?", userID)
+	} else if isPublic {
+		query = query.Where("is_public = ?", true)
+	}
+	// исключаем зашифрованные изображения и неудачные обработки
+	query = query.Where("is_encrypted = ?", false)
+	query = query.Where("processing_status IS NULL OR processing_status != ?", "failed")
+	// фильтр includeTags
+	for _, tag := range includeTags {
+		subQuery := s.db.WithContext(ctx).Model(&models.ImageTag{}).
+			Select("image_id").
+			Joins("JOIN tags ON image_tags.tag_id = tags.id").
+			Where("tags.name = ?", strings.ToLower(tag))
+		query = query.Where("images.id IN (?)", subQuery)
+	}
+	// фильтр excludeTags
+	if len(excludeTags) > 0 {
+		subQuery := s.db.WithContext(ctx).Model(&models.ImageTag{}).
+			Select("image_id").
+			Joins("JOIN tags ON image_tags.tag_id = tags.id").
+			Where("tags.name IN ?", excludeTags)
+		query = query.Where("images.id NOT IN (?)", subQuery)
+	}
+	// подсчёт total
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count posts: %w", err)
+	}
+	// получение данных
+	var images []*models.Image
+	err := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&images).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get posts page: %w", err)
+	}
+	return images, total, nil
 }

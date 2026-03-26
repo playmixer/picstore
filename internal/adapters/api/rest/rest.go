@@ -51,6 +51,7 @@ type PicStore interface {
 	DeleteImages(ctx context.Context, userID uint, imageIDs []uint) error
 	GetMaxFileSize() int64
 	RecordView(ctx context.Context, imageID uint, userID uint) (bool, error)
+	GetNavigationContext(ctx context.Context, imageID uint, windowSize int, includeTags, excludeTags []string, currentUserID uint) (*picstore.NavigationContext, error)
 }
 
 type Cache interface {
@@ -230,7 +231,9 @@ func (s *Server) SetupRouter() *gin.Engine {
 	r.GET("/about", s.handlerAbout)
 	r.GET("/posts", s.handlerPosts)
 	r.GET("/api/tags", s.handlerTagsAutocomplete)
+	r.GET("/api/navigation/:imageID", s.handlerNavigationContext)
 	r.GET("/view/:y/:m/:d/:h/:filename", s.handlerView)
+	r.GET("/health", s.handlerHealth)
 
 	auth := r.Group("/i")
 	auth.Use(s.authMiddleware())

@@ -265,7 +265,7 @@
                         </div>
                     </div>
                     {{ else }}
-                    <img src="/image/{{ if .PreviewPath }}{{ .PreviewPath }}{{ else }}{{ .Path }}{{ end }}" alt="{{ .Path }}">
+                    <img src="/image/{{ if .PreviewPath }}{{ .PreviewPath }}{{ else }}{{ .Path }}{{ end }}" alt="{{ .Path }}" loading="lazy" decoding="async">
                     {{ end }}
                 </a>
             </div>

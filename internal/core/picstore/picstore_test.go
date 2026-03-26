@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"picstore/internal/adapters/models"
 	"picstore/internal/adapters/storage/types"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,14 @@ func (m *mockStore) UpdateImage(ctx context.Context, userID uint, imageID uint, 
 
 func (m *mockStore) IncrementViews(ctx context.Context, imageID uint, delta uint) error {
 	return nil
+}
+
+func (m *mockStore) GetPostsPage(ctx context.Context, userID uint, isPublic bool, includeTags, excludeTags []string, limit, offset int) ([]*models.Image, int64, error) {
+	return nil, 0, nil
+}
+
+func (m *mockStore) GetFilteredImageIDs(ctx context.Context, userID uint, includeTags, excludeTags []string, limit, offset int) ([]uint, error) {
+	return nil, nil
 }
 
 // mockCache реализует интерфейс cache для тестов.
@@ -218,11 +227,13 @@ type controllableStore struct {
 	newImageWithStatusFunc func(ctx context.Context, userID uint, path, previewPath string, isPublic bool, tags string,
 		isEncrypted bool, salt, nonce, previewSalt, previewNonce []byte,
 		processingStatus, originalPath, tempStoragePath string) (*models.Image, error)
-	getImageFunc       func(ctx context.Context, path string) (*models.Image, error)
-	getImagesFunc      func(ctx context.Context) ([]*models.Image, error)
-	updateImageFunc    func(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
-	delImagesFunc      func(ctx context.Context, userID uint, imageIDs []uint) error
-	incrementViewsFunc func(ctx context.Context, imageID uint, delta uint) error
+	getImageFunc            func(ctx context.Context, path string) (*models.Image, error)
+	getImagesFunc           func(ctx context.Context) ([]*models.Image, error)
+	updateImageFunc         func(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
+	delImagesFunc           func(ctx context.Context, userID uint, imageIDs []uint) error
+	incrementViewsFunc      func(ctx context.Context, imageID uint, delta uint) error
+	getPostsPageFunc        func(ctx context.Context, userID uint, isPublic bool, includeTags, excludeTags []string, limit, offset int) ([]*models.Image, int64, error)
+	getFilteredImageIDsFunc func(ctx context.Context, userID uint, includeTags, excludeTags []string, limit, offset int) ([]uint, error)
 }
 
 func (c *controllableStore) NewImage(ctx context.Context, userID uint, path string, isPublic bool, tags string, isEncrypted bool, salt, nonce []byte) (*models.Image, error) {
@@ -322,6 +333,20 @@ func (c *controllableStore) IncrementViews(ctx context.Context, imageID uint, de
 		return c.incrementViewsFunc(ctx, imageID, delta)
 	}
 	return nil
+}
+
+func (c *controllableStore) GetPostsPage(ctx context.Context, userID uint, isPublic bool, includeTags, excludeTags []string, limit, offset int) ([]*models.Image, int64, error) {
+	if c.getPostsPageFunc != nil {
+		return c.getPostsPageFunc(ctx, userID, isPublic, includeTags, excludeTags, limit, offset)
+	}
+	return []*models.Image{}, 0, nil
+}
+
+func (c *controllableStore) GetFilteredImageIDs(ctx context.Context, userID uint, includeTags, excludeTags []string, limit, offset int) ([]uint, error) {
+	if c.getFilteredImageIDsFunc != nil {
+		return c.getFilteredImageIDsFunc(ctx, userID, includeTags, excludeTags, limit, offset)
+	}
+	return []uint{}, nil
 }
 
 // controllableCache реализует интерфейс cache с возможностью задавать поведение.
@@ -718,6 +743,78 @@ func TestGetPostsWithTags(t *testing.T) {
 		getImagesFunc: func(ctx context.Context) ([]*models.Image, error) {
 			return images, nil
 		},
+		getPostsPageFunc: func(ctx context.Context, userID uint, isPublic bool, includeTags, excludeTags []string, limit, offset int) ([]*models.Image, int64, error) {
+			// Вспомогательные функции
+			splitTags := func(tagStr string) []string {
+				// Теги разделены пробелами и/или запятыми
+				// Упростим: разделим по пробелам
+				return strings.Fields(tagStr)
+			}
+			containsAll := func(haystack []string, needles []string) bool {
+				for _, n := range needles {
+					found := false
+					for _, h := range haystack {
+						if h == n {
+							found = true
+							break
+						}
+					}
+					if !found {
+						return false
+					}
+				}
+				return true
+			}
+			containsAny := func(haystack []string, needles []string) bool {
+				for _, n := range needles {
+					for _, h := range haystack {
+						if h == n {
+							return true
+						}
+					}
+				}
+				return false
+			}
+
+			// Фильтрация по isPublic (все изображения в тесте публичные, но для надёжности)
+			filtered := make([]*models.Image, 0, len(images))
+			for _, img := range images {
+				if img.IsPublic != isPublic {
+					continue
+				}
+				// Фильтрация по тегам (если указаны)
+				if len(includeTags) > 0 {
+					imgTags := splitTags(img.Tags)
+					if !containsAll(imgTags, includeTags) {
+						continue
+					}
+				}
+				if len(excludeTags) > 0 {
+					imgTags := splitTags(img.Tags)
+					if containsAny(imgTags, excludeTags) {
+						continue
+					}
+				}
+				filtered = append(filtered, img)
+			}
+			total := int64(len(filtered))
+			// Пагинация
+			start := offset
+			end := offset + limit
+			if start > len(filtered) {
+				start = len(filtered)
+			}
+			if end > len(filtered) {
+				end = len(filtered)
+			}
+			if start < 0 {
+				start = 0
+			}
+			if end < 0 {
+				end = 0
+			}
+			return filtered[start:end], total, nil
+		},
 	}
 	cache := &controllableCache{
 		getHFunc: func(ctx context.Context, key string, obj types.ObjInterface) error {
@@ -843,6 +940,78 @@ func TestGetPostsPage(t *testing.T) {
 	store := &controllableStore{
 		getImagesFunc: func(ctx context.Context) ([]*models.Image, error) {
 			return images, nil
+		},
+		getPostsPageFunc: func(ctx context.Context, userID uint, isPublic bool, includeTags, excludeTags []string, limit, offset int) ([]*models.Image, int64, error) {
+			// Вспомогательные функции
+			splitTags := func(tagStr string) []string {
+				// Теги разделены пробелами и/или запятыми
+				// Упростим: разделим по пробелам
+				return strings.Fields(tagStr)
+			}
+			containsAll := func(haystack []string, needles []string) bool {
+				for _, n := range needles {
+					found := false
+					for _, h := range haystack {
+						if h == n {
+							found = true
+							break
+						}
+					}
+					if !found {
+						return false
+					}
+				}
+				return true
+			}
+			containsAny := func(haystack []string, needles []string) bool {
+				for _, n := range needles {
+					for _, h := range haystack {
+						if h == n {
+							return true
+						}
+					}
+				}
+				return false
+			}
+
+			// Фильтрация по isPublic (все изображения в тесте публичные, но для надёжности)
+			filtered := make([]*models.Image, 0, len(images))
+			for _, img := range images {
+				if img.IsPublic != isPublic {
+					continue
+				}
+				// Фильтрация по тегам (если указаны)
+				if len(includeTags) > 0 {
+					imgTags := splitTags(img.Tags)
+					if !containsAll(imgTags, includeTags) {
+						continue
+					}
+				}
+				if len(excludeTags) > 0 {
+					imgTags := splitTags(img.Tags)
+					if containsAny(imgTags, excludeTags) {
+						continue
+					}
+				}
+				filtered = append(filtered, img)
+			}
+			total := int64(len(filtered))
+			// Пагинация
+			start := offset
+			end := offset + limit
+			if start > len(filtered) {
+				start = len(filtered)
+			}
+			if end > len(filtered) {
+				end = len(filtered)
+			}
+			if start < 0 {
+				start = 0
+			}
+			if end < 0 {
+				end = 0
+			}
+			return filtered[start:end], total, nil
 		},
 	}
 	// Кэш, который не содержит данных (GetH возвращает ошибку)

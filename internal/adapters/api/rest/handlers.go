@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/playmixer/single-auth/pkg/authtools"
@@ -25,6 +27,8 @@ var (
 	pageSize int = 10
 )
 
+// handlerSSOLogin обрабатывает callback от SSO провайдера, проверяет state, расшифровывает параметры,
+// создаёт или обновляет пользователя, устанавливает JWT cookie и перенаправляет на оригинальный URL.
 func (s *Server) handlerSSOLogin(ctx *gin.Context) {
 	// Проверка state для защиты от CSRF
 	stateParam := ctx.Query("state")
@@ -152,24 +156,28 @@ func (s *Server) handlerSSOLogin(ctx *gin.Context) {
 	ctx.Redirect(http.StatusMovedPermanently, decodedURL)
 }
 
+// handlerMain отображает главную страницу (index.html) с информацией о пользователе.
 func (s *Server) handlerMain(c *gin.Context) {
 	c.HTML(http.StatusOK, "index.html", gin.H{
 		"user": s.getUser(c),
 	})
 }
 
+// handlerAbout отображает страницу "О проекте" (about.html).
 func (s *Server) handlerAbout(c *gin.Context) {
 	c.HTML(http.StatusOK, "about.html", gin.H{
 		"user": s.getUser(c),
 	})
 }
 
+// handlerProfile отображает страницу профиля пользователя (profile/index.html).
 func (s *Server) handlerProfile(c *gin.Context) {
 	c.HTML(http.StatusOK, "profile/index.html", gin.H{
 		"user": s.getUser(c),
 	})
 }
 
+// handlerUpload отображает страницу загрузки изображений (profile/upload.html) с информацией о максимальном размере файла.
 func (s *Server) handlerUpload(c *gin.Context) {
 	c.HTML(http.StatusOK, "profile/upload.html", gin.H{
 		"user":        s.getUser(c),
@@ -177,6 +185,7 @@ func (s *Server) handlerUpload(c *gin.Context) {
 	})
 }
 
+// handlerUploadPost обрабатывает POST-запрос загрузки изображений (файлы или URL), выполняет валидацию и сохраняет через PicStore.
 func (s *Server) handlerUploadPost(c *gin.Context) {
 	user := s.getUser(c)
 	formType := c.PostForm("type")
@@ -268,6 +277,7 @@ func (s *Server) handlerUploadPost(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/upload?info=%s", url.QueryEscape("файл(ы) загружены")))
 }
 
+// handlerPosts отображает страницу публичных постов с пагинацией и фильтрацией по тегам.
 func (s *Server) handlerPosts(c *gin.Context) {
 	tagsParam := strings.TrimSpace(c.Query("tags"))
 	page := c.Query("page")
@@ -441,12 +451,36 @@ func (s *Server) handlerView(c *gin.Context) {
 		return
 	}
 
+	// Устанавливаем связи Prev/Next для навигации
+	for i := range images {
+		if i > 0 {
+			images[i].Prev = images[i-1]
+		} else {
+			images[i].Prev = nil
+		}
+		if i < len(images)-1 {
+			images[i].Next = images[i+1]
+		} else {
+			images[i].Next = nil
+		}
+	}
+
 	for _, row := range images {
 		if row.ID == img.ID {
 			img = row
 			break
 		}
 	}
+
+	// Отладочное логирование навигационных связей
+	s.log.Debug("handlerView navigation",
+		zap.Uint("imageID", img.ID),
+		zap.String("imagePath", img.Path),
+		zap.Bool("hasPrev", img.Prev != nil),
+		zap.Bool("hasNext", img.Next != nil),
+		zap.String("tags", tagsParam),
+		zap.Int("totalImages", len(images)),
+	)
 
 	prev := ""
 	if img.Prev != nil {
@@ -476,6 +510,11 @@ func (s *Server) handlerView(c *gin.Context) {
 			next += "?" + strings.Join(queryParams, "&")
 		}
 	}
+
+	s.log.Debug("handlerView generated links",
+		zap.String("prev", prev),
+		zap.String("next", next),
+	)
 	c.HTML(http.StatusOK, "view.html", gin.H{
 		"user":  user,
 		"image": fmt.Sprintf("/image/%s/%s/%s/%s/%s", year, month, day, hour, filename),
@@ -734,6 +773,16 @@ func (s *Server) handlerUserView(c *gin.Context) {
 		currentImg = img
 	}
 
+	// Отладочное логирование навигационных связей
+	s.log.Debug("handlerUserView navigation",
+		zap.Uint("imageID", currentImg.ID),
+		zap.String("imagePath", currentImg.Path),
+		zap.Bool("hasPrev", currentImg.Prev != nil),
+		zap.Bool("hasNext", currentImg.Next != nil),
+		zap.String("tags", tagsParam),
+		zap.Int("totalFiltered", len(filteredPosts)),
+	)
+
 	prev := ""
 	if currentImg.Prev != nil {
 		prev = fmt.Sprintf("/i/view/%s", currentImg.Prev.Path)
@@ -762,14 +811,38 @@ func (s *Server) handlerUserView(c *gin.Context) {
 			next += "?" + strings.Join(queryParams, "&")
 		}
 	}
+
+	// Отладочное логирование сгенерированных ссылок
+	s.log.Debug("handlerUserView generated links",
+		zap.String("prev", prev),
+		zap.String("next", next),
+	)
+
+	// Предзагрузка соседних изображений
+	prevImageURL := ""
+	nextImageURL := ""
+	if currentImg.Prev != nil {
+		prevImageURL = fmt.Sprintf("/i/view/%s?view=file", currentImg.Prev.Path)
+		if key != "" {
+			prevImageURL += "&key=" + url.QueryEscape(key)
+		}
+	}
+	if currentImg.Next != nil {
+		nextImageURL = fmt.Sprintf("/i/view/%s?view=file", currentImg.Next.Path)
+		if key != "" {
+			nextImageURL += "&key=" + url.QueryEscape(key)
+		}
+	}
 	c.HTML(http.StatusOK, "profile/view.html", gin.H{
-		"user":  user,
-		"image": fmt.Sprintf("/image/%s/%s/%s/%s/%s", year, month, day, hour, filename),
-		"img":   currentImg,
-		"prev":  prev,
-		"next":  next,
-		"tags":  tagsParam,
-		"key":   key,
+		"user":         user,
+		"image":        fmt.Sprintf("/image/%s/%s/%s/%s/%s", year, month, day, hour, filename),
+		"img":          currentImg,
+		"prev":         prev,
+		"next":         next,
+		"prevImageURL": prevImageURL,
+		"nextImageURL": nextImageURL,
+		"tags":         tagsParam,
+		"key":          key,
 	})
 }
 
@@ -902,4 +975,88 @@ func (s *Server) handlerDeleteImages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "изображения удалены"})
+}
+
+// GET /health - health check endpoint
+func (s *Server) handlerHealth(c *gin.Context) {
+	// Проверяем доступность базы данных
+	dbOK := true
+	if storage, ok := s.pic.(interface{ Ping(context.Context) error }); ok {
+		ctx := c.Request.Context()
+		if err := storage.Ping(ctx); err != nil {
+			s.log.Warn("database ping failed", zap.Error(err))
+			dbOK = false
+		}
+	} else {
+		// Если интерфейс Ping не реализован, считаем, что БД работает
+		s.log.Debug("database ping not implemented")
+	}
+
+	// Проверяем доступность кэша
+	cacheOK := true
+	if s.cache != nil {
+		ctx := c.Request.Context()
+		if err := s.cache.Set(ctx, "healthcheck", []byte("ping"), 1*time.Second); err != nil {
+			s.log.Warn("cache set failed", zap.Error(err))
+			cacheOK = false
+		}
+	}
+
+	status := http.StatusOK
+	message := "OK"
+	if !dbOK || !cacheOK {
+		status = http.StatusServiceUnavailable
+		message = "degraded"
+	}
+
+	c.JSON(status, gin.H{
+		"status":  message,
+		"db":      dbOK,
+		"cache":   cacheOK,
+		"version": "1.0",
+	})
+}
+
+// GET /api/navigation/:imageID - получение NavigationContext для навигации по изображениям
+func (s *Server) handlerNavigationContext(c *gin.Context) {
+	imageIDStr := c.Param("imageID")
+	imageID, err := strconv.ParseUint(imageIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный ID изображения"})
+		return
+	}
+
+	windowStr := c.DefaultQuery("window", "5")
+	window, err := strconv.Atoi(windowStr)
+	if err != nil || window < 1 || window > 100 {
+		window = 5
+	}
+
+	includeTags := strings.Fields(c.DefaultQuery("include", ""))
+	excludeTags := strings.Fields(c.DefaultQuery("exclude", ""))
+
+	// Определяем текущего пользователя (если авторизован)
+	var currentUserID uint
+	user := s.getUser(c)
+	if user != nil {
+		currentUserID = user.ID
+	}
+
+	s.log.Debug("handlerNavigationContext",
+		zap.Uint64("imageID", imageID),
+		zap.Int("window", window),
+		zap.Strings("includeTags", includeTags),
+		zap.Strings("excludeTags", excludeTags),
+		zap.Uint("currentUserID", currentUserID),
+	)
+
+	ctx := c.Request.Context()
+	navCtx, err := s.pic.GetNavigationContext(ctx, uint(imageID), window, includeTags, excludeTags, currentUserID)
+	if err != nil {
+		s.log.Error("failed to get navigation context", zap.Error(err), zap.Uint64("imageID", imageID))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "не удалось получить контекст навигации"})
+		return
+	}
+
+	c.JSON(http.StatusOK, navCtx)
 }

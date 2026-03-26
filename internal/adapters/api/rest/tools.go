@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// resetCookie очищает JWT и refresh‑token cookie для всех настроенных доменов.
 func (s *Server) resetCookie(c *gin.Context) {
 	for _, domain := range s.cookieDomain {
 		s.log.Debug("clear cookie", zap.String("host", domain))
@@ -143,6 +144,8 @@ func (s *Server) buildAuthURL(c *gin.Context) (string, error) {
 	return authURL, nil
 }
 
+// empty возвращает true, если значение типа string пустое или типа int равно нулю.
+// Поддерживаются только string и int; для других типов всегда возвращает false.
 func empty[T string | int](s T) bool {
 	val := reflect.ValueOf(s)
 
@@ -157,6 +160,8 @@ func empty[T string | int](s T) bool {
 	}
 }
 
+// checkAuth проверяет JWT cookie и возвращает идентификатор пользователя, если токен валиден.
+// В случае ошибки (отсутствие cookie, невалидный токен, отсутствие userID) возвращает ошибку.
 func (s *Server) checkAuth(c *gin.Context) (userID string, err error) {
 	var ok bool
 	var tknData map[string]string
@@ -177,6 +182,8 @@ func (s *Server) checkAuth(c *gin.Context) (userID string, err error) {
 	return "", fmt.Errorf("failed to read user id from token")
 }
 
+// getUser возвращает объект пользователя из контекста запроса.
+// Если аутентификация не удалась, возвращает пустую структуру User.
 func (s *Server) getUser(c *gin.Context) *models.User {
 	u := &models.User{}
 	userIDs, err := s.checkAuth(c)
@@ -200,6 +207,10 @@ func (s *Server) getUser(c *gin.Context) *models.User {
 	return user
 }
 
+// pagify вычисляет начальный и конечный индексы строк для пагинации, а также общее количество страниц.
+// totalRows - общее количество строк, pageSize - размер страницы, curPage - текущая страница (начиная с 1).
+// Возвращает rowStart (индекс первой строки на странице, 0‑based), rowEnd (индекс строки после последней на странице),
+// и totalPage (общее количество страниц). Если totalRows == 0, totalPage будет 0.
 func pagify(totalRows int, pageSize int, curPage int) (rowStart, rowEnd int, totalPage int) {
 	// Корректируем curPage, если он меньше 1
 	if curPage < 1 {
@@ -227,6 +238,7 @@ func pagify(totalRows int, pageSize int, curPage int) (rowStart, rowEnd int, tot
 	return
 }
 
+// atoi преобразует строку в целое число. Если преобразование невозможно, возвращает 0.
 func atoi(n string) int {
 	i, err := strconv.Atoi(n)
 	if err != nil {
@@ -235,10 +247,12 @@ func atoi(n string) int {
 	return i
 }
 
+// datetimeF форматирует время в строку "дд.мм.гггг чч:мм".
 func datetimeF(t time.Time) string {
 	return t.Format("02.01.2006 15:04")
 }
 
+// genNumbers возвращает срез целых чисел от 1 до total включительно.
 func genNumbers(total int) []int {
 	res := make([]int, total)
 	for i := 0; i < total; i++ {
@@ -247,10 +261,12 @@ func genNumbers(total int) []int {
 	return res
 }
 
+// afterI возвращает true, если new больше cur (новое значение находится «после» текущего).
 func afterI(cur, new int) bool {
 	return new > cur
 }
 
+// beforeI возвращает true, если new меньше cur (новое значение находится «до» текущего).
 func beforeI(cur, new int) bool {
 	return new < cur
 }
