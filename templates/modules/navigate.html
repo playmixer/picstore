@@ -1,6 +1,6 @@
 {{ define "modules/navigate.html" }}
-<link rel="stylesheet" href="/css/modules/navigate.css">
-<link rel="stylesheet" href="/css/modules/theme.css">
+<link rel="stylesheet" href="/css/modules/navigate.css?v={{ version }}">
+<link rel="stylesheet" href="/css/modules/theme.css?v={{ version }}">
 <nav>
     <button class="nav-toggle" id="nav-toggle" aria-label="Меню навигации">
         <span class="hamburger"></span>
@@ -28,5 +28,5 @@
         </div>
     </div>
 </nav>
-<script src="/js/navigate.js" defer></script>
+<script src="/js/navigate.js?v={{ version }}" defer></script>
 {{ end }}

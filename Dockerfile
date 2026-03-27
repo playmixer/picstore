@@ -1,7 +1,9 @@
 FROM golang:1.25 as build
 
 ARG GIN_MODE=release
+ARG BUILD_VERSION=unknown
 ENV GIN_MODE=$GIN_MODE
+ENV BUILD_VERSION=$BUILD_VERSION
 # create a working directory inside the image
 WORKDIR /app
 
@@ -16,8 +18,8 @@ RUN go mod download
 COPY ./cmd/main/main.go ./
 COPY ./internal ./internal
 
-# compile application
-RUN go build -o /app/main ./main.go
+# compile application with version
+RUN go build -ldflags "-X main.buildVersion=${BUILD_VERSION}" -o /app/main ./main.go
 
 FROM ubuntu:latest
 

@@ -21,6 +21,7 @@ import (
 
 var (
 	shutdownDelay = time.Second * 2
+	buildVersion  = "unknown"
 )
 
 func main() {
@@ -76,6 +77,7 @@ func run() error {
 		rest.SetCookieLifeTime(cfg.API.CookieLifeTime),
 		rest.SetSSOAuth(cfg.API.SSOAuthURL, cfg.API.SSOAuthCert),
 		rest.SetMaxUploadItems(cfg.API.MaxUploadItems),
+		rest.SetVersion(buildVersion),
 	)
 
 	lgr.Info("Starting")

@@ -86,6 +86,7 @@ type Server struct {
 	certData       []byte
 	imgPath        string
 	maxUploadItems int
+	version        string
 }
 
 type Option func(s *Server)
@@ -100,6 +101,7 @@ func New(pic PicStore, auth AuthManager, cache Cache, log *logger.Logger, option
 		secretKey:      []byte("rest_secret_key"),
 		imgPath:        "./tmp",
 		maxUploadItems: 10,
+		version:        "unknown",
 	}
 	srv.s.Addr = "localhost:8080"
 
@@ -193,6 +195,12 @@ func SetMaxUploadItems(max int) Option {
 	}
 }
 
+func SetVersion(version string) Option {
+	return func(s *Server) {
+		s.version = version
+	}
+}
+
 func (s *Server) SetupRouter() *gin.Engine {
 	r := gin.New()
 
@@ -205,6 +213,7 @@ func (s *Server) SetupRouter() *gin.Engine {
 		"afterI":     afterI,
 		"beforeI":    beforeI,
 		"split":      strings.Split,
+		"version":    func() string { return s.version },
 	})
 	r.LoadHTMLGlob("templates/**/*")
 	r.Static("/css", "./static/css")
