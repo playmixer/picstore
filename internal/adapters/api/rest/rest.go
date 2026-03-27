@@ -44,7 +44,7 @@ type PicStore interface {
 
 	GetPosts(ctx context.Context) ([]*picstore.PicImage, error)
 	GetPostsWithTags(ctx context.Context, tags string) ([]*picstore.PicImage, error)
-	GetPostsPage(ctx context.Context, page, pageSize int, tags string) ([]*picstore.PicImage, error)
+	GetPostsPage(ctx context.Context, userID uint, page, pageSize int, tags string) ([]*picstore.PicImage, int64, error)
 	GetTagsWithCount(ctx context.Context) (map[string]int, error)
 	GetUserPosts(ctx context.Context, userID uint) ([]*picstore.PicImage, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
@@ -240,6 +240,7 @@ func (s *Server) SetupRouter() *gin.Engine {
 	r.GET("/posts", s.handlerPosts)
 	r.GET("/api/tags", s.handlerTagsAutocomplete)
 	r.GET("/api/navigation/:imageID", s.handlerNavigationContext)
+	r.POST("/api/view/:imageID/record", s.handlerRecordView)
 	r.GET("/view/:y/:m/:d/:h/:filename", s.handlerView)
 	r.GET("/health", s.handlerHealth)
 

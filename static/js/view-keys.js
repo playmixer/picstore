@@ -6,6 +6,12 @@
 
     // Wait for DOM to be fully loaded
     document.addEventListener('DOMContentLoaded', function() {
+        // If NavigationManager is active, skip adding our own handlers
+        if (window.navigationManagerActive) {
+            console.log('NavigationManager is active, view-keys.js handlers disabled');
+            return;
+        }
+
         // Find navigation buttons by ID
         const prevButton = document.getElementById('prev-button');
         const nextButton = document.getElementById('next-button');
@@ -38,6 +44,8 @@
 
         // Keydown handler
         function handleKeydown(event) {
+            // If NavigationManager becomes active after we attached listeners, skip
+            if (window.navigationManagerActive) return;
             // Ignore if target is an input, textarea, select, or contenteditable
             const tag = event.target.tagName;
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) ||
@@ -69,6 +77,7 @@
         const swipeThreshold = 50; // minimum distance in pixels to trigger swipe
 
         function handleTouchStart(event) {
+            if (window.navigationManagerActive) return;
             touchStartX = event.changedTouches[0].screenX;
         }
 
@@ -78,6 +87,7 @@
         }
 
         function handleTouchEnd(event) {
+            if (window.navigationManagerActive) return;
             touchEndX = event.changedTouches[0].screenX;
             const diffX = touchStartX - touchEndX;
 
@@ -100,6 +110,7 @@
         // Intercept click on navigation links to preserve fullscreen state
         if (prevButton && prevButton.tagName === 'A') {
             prevButton.addEventListener('click', function(e) {
+                if (window.navigationManagerActive) return;
                 console.log('Prev button clicked, disabled?', isDisabled(prevButton));
                 if (!isDisabled(prevButton)) {
                     e.preventDefault();
@@ -112,6 +123,7 @@
         }
         if (nextButton && nextButton.tagName === 'A') {
             nextButton.addEventListener('click', function(e) {
+                if (window.navigationManagerActive) return;
                 console.log('Next button clicked, disabled?', isDisabled(nextButton));
                 if (!isDisabled(nextButton)) {
                     e.preventDefault();

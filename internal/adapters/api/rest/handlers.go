@@ -300,27 +300,14 @@ func (s *Server) handlerPosts(c *gin.Context) {
 	}
 
 	// Получаем страницу постов через GetPostsPage
-	pagePosts, err := s.pic.GetPostsPage(c.Request.Context(), curPage, pageSize, tagsParam)
+	pagePosts, total, err := s.pic.GetPostsPage(c.Request.Context(), 0, curPage, pageSize, tagsParam)
 	if err != nil {
 		s.log.Error("failed get posts page", zap.Error(err))
 		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/posts?error=%s", url.QueryEscape("не удалось получить посты")))
 		return
 	}
 
-	// Для пагинации нужно общее количество постов (с фильтром по тегам)
-	var allPosts []*picstore.PicImage
-	if tagsParam == "" {
-		allPosts, err = s.pic.GetPosts(c.Request.Context())
-	} else {
-		allPosts, err = s.pic.GetPostsWithTags(c.Request.Context(), tagsParam)
-	}
-	if err != nil {
-		s.log.Error("failed get total posts", zap.Error(err))
-		// но мы уже имеем pagePosts, можно продолжить с нулевым total
-		allPosts = []*picstore.PicImage{}
-	}
-	total := len(allPosts)
-	totalPages := (total + pageSize - 1) / pageSize
+	totalPages := (int(total) + pageSize - 1) / pageSize
 	if totalPages == 0 {
 		totalPages = 1
 	}
@@ -544,63 +531,7 @@ func (s *Server) handlerUserPosts(c *gin.Context) {
 		c.Redirect(http.StatusSeeOther, "/sso/auth")
 		return
 	}
-
-	// Получаем все посты пользователя
-	allPosts, err := s.pic.GetUserPosts(c.Request.Context(), user.ID)
-	if err != nil {
-		s.log.Error("failed get user posts", zap.Error(err))
-		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/i/posts?error=%s", url.QueryEscape("не удалось получить посты")))
-		return
-	}
-
-	// Фильтрация по тегам
 	tagsParam := strings.TrimSpace(c.Query("tags"))
-	var filteredPosts []*picstore.PicImage
-	if tagsParam != "" {
-		searchTags := strings.Fields(tagsParam)
-		// Вспомогательная функция для проверки тегов (с поддержкой исключающих тегов)
-		containsAllTags := func(imageTags string, searchTags []string) bool {
-			if len(searchTags) == 0 {
-				return true
-			}
-			// Разделяем теги на включающие и исключающие
-			var includeTags, excludeTags []string
-			for _, t := range searchTags {
-				if strings.HasPrefix(t, "-") && len(t) > 1 {
-					excludeTags = append(excludeTags, strings.ToLower(t[1:]))
-				} else {
-					includeTags = append(includeTags, strings.ToLower(t))
-				}
-			}
-			// Строим карту тегов изображения (в нижнем регистре)
-			tagMap := make(map[string]bool)
-			for _, t := range strings.Fields(imageTags) {
-				tagMap[strings.ToLower(t)] = true
-			}
-			// Проверяем наличие всех включающих тегов
-			for _, t := range includeTags {
-				if !tagMap[t] {
-					return false
-				}
-			}
-			// Проверяем отсутствие исключающих тегов
-			for _, t := range excludeTags {
-				if tagMap[t] {
-					return false
-				}
-			}
-			return true
-		}
-		for _, img := range allPosts {
-			if containsAllTags(img.Tags, searchTags) {
-				filteredPosts = append(filteredPosts, img)
-			}
-		}
-	} else {
-		filteredPosts = allPosts
-	}
-
-	// Пагинация
 	page := c.Query("page")
 	if page == "" {
 		page = "1"
@@ -610,21 +541,37 @@ func (s *Server) handlerUserPosts(c *gin.Context) {
 		curPage = 1
 	}
 
-	start, end, total := pagify(len(filteredPosts), pageSize, curPage)
+	// Получаем страницу постов через GetPostsPage
+	pagePosts, total, err := s.pic.GetPostsPage(c.Request.Context(), user.ID, curPage, pageSize, tagsParam)
+	if err != nil {
+		s.log.Error("failed get posts page", zap.Error(err))
+		c.Redirect(http.StatusSeeOther, fmt.Sprintf("/posts?error=%s", url.QueryEscape("не удалось получить посты")))
+		return
+	}
+
+	totalPages := (int(total) + pageSize - 1) / pageSize
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	// Корректируем curPage, если он превышает totalPages
+	if curPage > totalPages {
+		curPage = totalPages
+	}
 	prev := curPage - 1
 	if prev < 1 {
 		prev = 0
 	}
 	next := curPage + 1
-	if next > total {
+	if next > totalPages {
 		next = 0
 	}
+
 	c.HTML(http.StatusOK, "profile/posts.html", gin.H{
-		"posts": filteredPosts[start:end],
+		"posts": pagePosts,
 		"user":  user,
 		"tags":  tagsParam,
 		"pagination": gin.H{
-			"total": total,
+			"total": totalPages,
 			"cur":   curPage,
 			"prev":  prev,
 			"next":  next,
@@ -856,7 +803,7 @@ func (s *Server) handlerUserView(c *gin.Context) {
 	})
 }
 
-// POST /view/:y/:m/:d/:h/:filename/update - обновление изображения (публичность и теги)
+// POST /i/view/:y/:m/:d/:h/:filename/update - обновление изображения (публичность и теги)
 func (s *Server) handlerUpdateImage(c *gin.Context) {
 	user := s.getUser(c)
 	if user.ID == 0 {
@@ -914,6 +861,11 @@ func (s *Server) handlerUpdateImage(c *gin.Context) {
 	queryParams = append(queryParams, "info="+url.QueryEscape("изображение обновлено"))
 	if len(queryParams) > 0 {
 		redirectURL += "?" + strings.Join(queryParams, "&")
+	}
+	callback := strings.TrimSpace(c.PostForm("callback"))
+	if callback != "" {
+		redirectURL = callback
+		s.log.Debug("update callback", zap.String("url", callback))
 	}
 	c.Redirect(http.StatusSeeOther, redirectURL)
 }
@@ -1052,12 +1004,19 @@ func (s *Server) handlerNavigationContext(c *gin.Context) {
 		currentUserID = user.ID
 	}
 
+	// Если запрос с /view, может быть передан параметр isPublic для принудительной публичной навигации
+	isPublicParam := c.DefaultQuery("isPublic", "false")
+	if isPublicParam == "true" {
+		currentUserID = 0
+	}
+
 	s.log.Debug("handlerNavigationContext",
 		zap.Uint64("imageID", imageID),
 		zap.Int("window", window),
 		zap.Strings("includeTags", includeTags),
 		zap.Strings("excludeTags", excludeTags),
 		zap.Uint("currentUserID", currentUserID),
+		zap.String("isPublic", isPublicParam),
 	)
 
 	ctx := c.Request.Context()
@@ -1069,4 +1028,38 @@ func (s *Server) handlerNavigationContext(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, navCtx)
+}
+
+// POST /api/view/:imageID/record - увеличение счетчика просмотров для изображения
+func (s *Server) handlerRecordView(c *gin.Context) {
+	imageIDStr := c.Param("imageID")
+	imageID, err := strconv.ParseUint(imageIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный ID изображения"})
+		return
+	}
+
+	// Определяем текущего пользователя (если авторизован)
+	var userID uint
+	user := s.getUser(c)
+	if user != nil {
+		userID = user.ID
+	} else {
+		userID = 0
+	}
+
+	s.log.Debug("handlerRecordView",
+		zap.Uint64("imageID", imageID),
+		zap.Uint("userID", userID),
+	)
+
+	ctx := c.Request.Context()
+	_, err = s.pic.RecordView(ctx, uint(imageID), userID)
+	if err != nil {
+		s.log.Error("failed to record view", zap.Error(err), zap.Uint64("imageID", imageID))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "не удалось зафиксировать просмотр"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

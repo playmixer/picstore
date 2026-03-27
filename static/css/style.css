@@ -62,3 +62,60 @@ input {
         font-size: 13px;
     }
 }
+
+/* Стили для AJAX-навигации */
+.nav-button.preloaded {
+    position: relative;
+    background-color: #4CAF50 !important; /* Зелёный для предзагруженных */
+}
+.nav-button.preloaded::after {
+    content: '✓';
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: white;
+    color: #4CAF50;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    font-size: 12px;
+    line-height: 16px;
+    text-align: center;
+    border: 1px solid #4CAF50;
+}
+
+.navigation-loader {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 20px 30px;
+    border-radius: 0;
+    z-index: 10000;
+    font-size: 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    display: none;
+}
+
+.navigation-loader::before {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    border: 2px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.hide {
+    display: none;
+}

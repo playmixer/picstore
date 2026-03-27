@@ -107,7 +107,7 @@
         background-color: rgba(255, 255, 255, 0.4);
     }
     .view-image-container.fullscreen .encrypted-placeholder {
-        display: none;
+        display: none !important;
     }
     .view-info {
         margin-top: 20px;
@@ -190,39 +190,22 @@
 </style>
 <div class="view-container" data-image-id="{{ .img.ID }}">
     <div class="view-navigation">
-        {{ if .prev }}
-            <a id="prev-button" class="nav-button" href="{{ .prev }}#view">←</a>
-        {{ else }}
-            <span class="nav-button disabled">←</span>
-        {{ end }}
+        <a id="prev-button" class="nav-button" href="{{ .prev }}#view"{{ if not .prev }} disabled{{ end }}>←</a>
         {{ if .tags }}
             <a class="nav-button" href="/i/posts?tags={{ .tags | urlquery }}">К списку (фильтр: {{ .tags }})</a>
         {{ else }}
             <a class="nav-button" href="/i/posts">К списку</a>
         {{ end }}
-        {{ if .next }}
-            <a id="next-button" class="nav-button" href="{{ .next }}#view">→</a>
-        {{ else }}
-            <span class="nav-button disabled">→</span>
-        {{ end }}
+        <a id="next-button" class="nav-button" href="{{ .next }}#view"{{ if not .next }} disabled{{ end }}>→</a>
     </div>
     <div class="view-image-container">
-        {{ if not (and .img.IsEncrypted (not .key)) }}
         <img class="view-image" id="view" src="/i/view/{{ .img.Path }}?view=file&key={{ .key }}" alt="Изображение">
         <button class="fullscreen-button" aria-label="Полноэкранный режим" title="Полноэкранный режим">⛶</button>
-        {{ if .prevImageURL }}
-        <img src="{{ .prevImageURL }}" alt="Предыдущее изображение" style="display: none;" />
-        {{ end }}
-        {{ if .nextImageURL }}
-        <img src="{{ .nextImageURL }}" alt="Следующее изображение" style="display: none;" />
-        {{ end }}
-        {{ end }}
-        {{ if .img.IsEncrypted }}
-        <div class="encrypted-placeholder" style="max-width: 800px; margin: 0 auto; background-color: #f0f0f0; border-radius: 8px; padding: 40px; text-align: center;">
+        <div class="encrypted-placeholder{{ if not .img.IsEncrypted }} hide{{ end }}" id="encrypted-placeholder" style="max-width: 800px; margin: 0 auto; background-color: #f0f0f0; border-radius: 8px; padding: 40px; text-align: center;">
             <div style="font-size: 64px; margin-bottom: 20px;">🔒</div>
             <h3 style="margin-bottom: 10px;">Изображение зашифровано</h3>
             <p style="color: #666; margin-bottom: 30px;">Для просмотра введите ключ шифрования</p>
-            <form method="GET" action="/i/view/{{ .img.Path }}#view" style="max-width: 400px; margin: 0 auto;">
+            <form method="GET" id="formEncrypt" action="/i/view/{{ .img.Path }}#view" style="max-width: 400px; margin: 0 auto;">
                 <input type="hidden" name="tags" value="{{ .tags }}">
                 <div style="margin-bottom: 15px;">
                     <input type="password" name="key" placeholder="Ключ шифрования" style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
@@ -231,9 +214,8 @@
             </form>
             <p style="font-size: 12px; color: #999; margin-top: 20px;">Ключ хранится только у вас. Не передавайте его другим.</p>
         </div>
-        {{ end }}
     </div>
-    <div class="view-info">
+    <div class="view-info" data-user-id="{{ .user.ID }}">
         {{ if .img.Tags }}
         <p><strong>Теги:</strong></p>
         <div class="tags">
@@ -243,28 +225,28 @@
         </div>
         {{ end }}
 
-        <p><strong>Просмотры:</strong> {{ .img.Views }}</p>
+        <p><strong>Просмотры:</strong> <span class="view-count" data-update="views">{{ .img.Views }}</span></p>
 
-        {{ if and .user .user.ID (eq .user.ID .img.UserID) }}
-        <hr style="margin: 20px 0;">
-        <h3>Управление изображением</h3>
-        <form method="POST" action="/i/view/{{ .img.Path }}/update?tags={{ .tags | urlquery }}&key={{ .key | urlquery }}" style="margin-bottom: 20px;">
-            <div style="margin-bottom: 10px;">
-                <label>
-                    <input type="checkbox" name="is_public" {{ if .img.IsPublic }}checked{{ end }}>
-                    Публичное
-                </label>
-            </div>
-            <div style="margin-bottom: 10px;">
-                <label for="tags">Теги (через пробел):</label>
-                <input type="text" id="tags" name="tags" value="{{ .img.Tags }}" style="width: 100%; padding: 5px;">
-            </div>
-            <button type="submit" style="padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 4px;">Сохранить изменения</button>
-        </form>
-        <form method="POST" action="/i/view/{{ .img.Path }}/delete" onsubmit="return confirm('Вы уверены, что хотите удалить это изображение?');">
-            <button type="submit" style="padding: 8px 16px; background-color: #f44336; color: white; border: none; border-radius: 4px;">Удалить изображение</button>
-        </form>
-        {{ end }}
+        <div id="imageController" class="hide">
+            <hr style="margin: 20px 0;">
+            <h3>Управление изображением</h3>
+            <form method="POST" action="/i/view/{{ .img.Path }}/update?tags={{ .tags | urlquery }}&key={{ .key | urlquery }}" style="margin-bottom: 20px;">
+                <div style="margin-bottom: 10px;">
+                    <label>
+                        <input type="checkbox" name="is_public" {{ if .img.IsPublic }}checked{{ end }}>
+                        Публичное
+                    </label>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label for="tags">Теги (через пробел):</label>
+                    <input type="text" id="tags" name="tags" value="{{ .img.Tags }}" style="width: 100%; padding: 5px;">
+                </div>
+                <button type="submit" style="padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 4px;">Сохранить изменения</button>
+            </form>
+            <form method="POST" action="/i/view/{{ .img.Path }}/delete" onsubmit="return confirm('Вы уверены, что хотите удалить это изображение?');">
+                <button type="submit" style="padding: 8px 16px; background-color: #f44336; color: white; border: none; border-radius: 4px;">Удалить изображение</button>
+            </form>
+        </div>
     </div>
 </div>
 <script src="/js/view-keys.js"></script>

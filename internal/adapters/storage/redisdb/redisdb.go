@@ -69,3 +69,7 @@ func (r *RedisDB) GetUint64(ctx context.Context, key string) (uint64, error) {
 	// Преобразуем строку в uint64
 	return strconv.ParseUint(val, 10, 64)
 }
+
+func (r *RedisDB) SetUint64(ctx context.Context, key string, value uint64, ttl time.Duration) error {
+	return r.Client.Set(ctx, key, value, ttl).Err()
+}

@@ -15,6 +15,7 @@ import (
 	"picstore/internal/adapters/models"
 	"picstore/internal/adapters/storage/types"
 	"picstore/internal/core/abtest"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,7 @@ import (
 const (
 	lengthFilename uint = 40
 
-	nsImagesAll   string = "images:all"
+	nsImagesAll   string = "images:user:0"
 	nsPostsPublic string = "posts:public"
 
 	// Circuit breaker settings
@@ -50,6 +51,7 @@ type cache interface {
 	SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
 	Keys(ctx context.Context, pattern string) ([]string, error)
 	GetUint64(ctx context.Context, key string) (uint64, error)
+	SetUint64(ctx context.Context, key string, value uint64, ttl time.Duration) error
 }
 
 // store определяет интерфейс для работы с хранилищем данных (база данных).
@@ -85,7 +87,7 @@ type self interface {
 	DecryptImage(ctx context.Context, path string, key string) ([]byte, error)
 	GetPosts(ctx context.Context) ([]*PicImage, error)
 	GetPostsWithTags(ctx context.Context, tags string) ([]*PicImage, error)
-	GetPostsPage(ctx context.Context, page, pageSize int, tags string) ([]*PicImage, error)
+	GetPostsPage(ctx context.Context, userID uint, page, pageSize int, tags string) ([]*PicImage, int64, error)
 	GetTagsWithCount(ctx context.Context) (map[string]int, error)
 	GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error)
 	UpdateImage(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
@@ -104,6 +106,7 @@ type PicStore struct {
 	cfg         Config
 	picturePath string
 	locker      map[string]*sync.Mutex
+	lockerMu    sync.RWMutex
 	taskQueue   chan func() error
 	wg          sync.WaitGroup
 	ctx         context.Context
@@ -115,40 +118,6 @@ type PicStore struct {
 	cacheMu            sync.RWMutex
 	cacheErrors        int       // consecutive cache errors
 	cacheDisabledUntil time.Time // time when cache will be re-enabled
-}
-
-// isCacheEnabled проверяет, включён ли кэш (circuit breaker не сработал).
-func (p *PicStore) isCacheEnabled() bool {
-	p.cacheMu.RLock()
-	defer p.cacheMu.RUnlock()
-	if p.cacheErrors >= cacheErrorThreshold && time.Now().Before(p.cacheDisabledUntil) {
-		return false
-	}
-	return true
-}
-
-// recordCacheError увеличивает счётчик ошибок кэша и при необходимости отключает кэш.
-func (p *PicStore) recordCacheError() {
-	p.cacheMu.Lock()
-	defer p.cacheMu.Unlock()
-	p.cacheErrors++
-	if p.cacheErrors >= cacheErrorThreshold {
-		p.cacheDisabledUntil = time.Now().Add(cacheDisableDuration)
-		p.log.Warn("cache disabled due to consecutive errors",
-			zap.Int("errors", p.cacheErrors),
-			zap.Time("disabled_until", p.cacheDisabledUntil))
-	}
-}
-
-// recordCacheSuccess сбрасывает счётчик ошибок кэша.
-func (p *PicStore) recordCacheSuccess() {
-	p.cacheMu.Lock()
-	defer p.cacheMu.Unlock()
-	if p.cacheErrors > 0 {
-		p.log.Debug("cache errors reset", zap.Int("previous_errors", p.cacheErrors))
-		p.cacheErrors = 0
-		p.cacheDisabledUntil = time.Time{}
-	}
 }
 
 var (
@@ -195,6 +164,58 @@ func New(ctx context.Context, cfg Config, log *logger.Logger, store store, cache
 		go p.worker(i)
 	}
 	return p, nil
+}
+
+func (p *PicStore) lock(name string) {
+	p.lockerMu.Lock()
+	defer p.lockerMu.Unlock()
+	if _, ok := p.locker[name]; !ok {
+		p.locker[name] = &sync.Mutex{}
+	}
+	p.locker[name].Lock()
+}
+
+func (p *PicStore) unlock(name string) {
+	p.lockerMu.Lock()
+	defer p.lockerMu.Unlock()
+	if _, ok := p.locker[name]; !ok {
+		p.locker[name] = &sync.Mutex{}
+	}
+	p.locker[name].Unlock()
+}
+
+// isCacheEnabled проверяет, включён ли кэш (circuit breaker не сработал).
+func (p *PicStore) isCacheEnabled() bool {
+	p.cacheMu.RLock()
+	defer p.cacheMu.RUnlock()
+	if p.cacheErrors >= cacheErrorThreshold && time.Now().Before(p.cacheDisabledUntil) {
+		return false
+	}
+	return true
+}
+
+// recordCacheError увеличивает счётчик ошибок кэша и при необходимости отключает кэш.
+func (p *PicStore) recordCacheError() {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+	p.cacheErrors++
+	if p.cacheErrors >= cacheErrorThreshold {
+		p.cacheDisabledUntil = time.Now().Add(cacheDisableDuration)
+		p.log.Warn("cache disabled due to consecutive errors",
+			zap.Int("errors", p.cacheErrors),
+			zap.Time("disabled_until", p.cacheDisabledUntil))
+	}
+}
+
+// recordCacheSuccess сбрасывает счётчик ошибок кэша.
+func (p *PicStore) recordCacheSuccess() {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+	if p.cacheErrors > 0 {
+		p.log.Debug("cache errors reset", zap.Int("previous_errors", p.cacheErrors))
+		p.cacheErrors = 0
+		p.cacheDisabledUntil = time.Time{}
+	}
 }
 
 // worker — фоновый воркер, выполняющий задачи из очереди taskQueue.
@@ -748,13 +769,14 @@ func (p *PicStore) GetImg(ctx context.Context, path string) (*PicImage, error) {
 
 // getImages возвращает все изображения из хранилища с применением фильтра и опцией пропуска зашифрованных.
 // Использует двухуровневое кэширование с circuit breaker для graceful degradation.
-func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, skipEncrypted bool) ([]*PicImage, error) {
+func (p *PicStore) getImages(ctx context.Context, userID uint, skipEncrypted bool) ([]*PicImage, error) {
 	var err error
+	cacheName := fmt.Sprintf("images:user:%v", userID)
 	data := models.Images{}
-	p.locker[nsImagesAll].Lock()
+	p.lock(cacheName)
 	// Пытаемся получить из кэша, если кэш включен
 	if p.isCacheEnabled() {
-		if err = p.cache.GetH(ctx, nsImagesAll, &data); err == nil {
+		if err = p.cache.GetH(ctx, cacheName, &data); err == nil {
 			p.recordCacheSuccess()
 		} else {
 			p.recordCacheError()
@@ -765,12 +787,12 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, s
 	if len(data) == 0 {
 		data, err = p.store.GetImages(ctx)
 		if err != nil {
-			p.locker[nsImagesAll].Unlock()
+			p.unlock(cacheName)
 			return []*PicImage{}, fmt.Errorf("failed gettings images: %w", err)
 		}
 		// Кэшируем, если кэш включен
 		if p.isCacheEnabled() {
-			if err := p.cache.SetH(ctx, nsImagesAll, &data, p.cfg.CacheTTL); err != nil {
+			if err := p.cache.SetH(ctx, cacheName, &data, p.cfg.CacheTTL); err != nil {
 				p.recordCacheError()
 				p.log.Error("failed cacheing images", zap.Error(err))
 			} else {
@@ -778,7 +800,7 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, s
 			}
 		}
 	}
-	p.locker[nsImagesAll].Unlock()
+	p.unlock(cacheName)
 
 	filtered := make([]*PicImage, 0)
 	for _, line := range data {
@@ -788,6 +810,14 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, s
 		}
 		// Пропускаем зашифрованные изображения, если требуется
 		if skipEncrypted && line.IsEncrypted {
+			continue
+		}
+		// Фильтрация по пользователю
+		if userID > 0 && line.UserID != userID {
+			continue
+		}
+		// Если userID == 0 (публичный запрос), показываем только публичные изображения
+		if userID == 0 && !line.IsPublic {
 			continue
 		}
 		fullPath := filepath.Join(p.picturePath, line.Path)
@@ -805,9 +835,7 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, s
 			Nonce:       line.Nonce,
 			Views:       line.Views,
 		}
-		if filter(image) {
-			filtered = append(filtered, image)
-		}
+		filtered = append(filtered, image)
 	}
 
 	// Установка связей Prev и Next
@@ -823,7 +851,7 @@ func (p *PicStore) getImages(ctx context.Context, filter func(*PicImage) bool, s
 	return filtered, nil
 }
 
-// GetPosts возвращает все публичные изображения (IsPublic = true), исключая зашифрованные.
+// GetPosts возвращает все изображения.
 // Использует двухуровневое кэширование (Redis) с circuit breaker для graceful degradation.
 // Возвращает слайс PicImage с установленными связями Prev/Next.
 func (p *PicStore) GetPosts(ctx context.Context) ([]*PicImage, error) {
@@ -842,7 +870,7 @@ func (p *PicStore) GetPosts(ctx context.Context) ([]*PicImage, error) {
 	}
 	// Если кэш отключен или данные не получены, загружаем из базы
 	if len(data) == 0 {
-		data, err = p.getImages(ctx, func(pi *PicImage) bool { return pi.IsPublic == true }, true)
+		data, err = p.getImages(ctx, 0, true)
 		if err != nil {
 			p.locker[nsPostsPublic].Unlock()
 			return nil, fmt.Errorf("failed getting public posts: %w", err)
@@ -896,7 +924,7 @@ func (p *PicStore) GetPostsWithTags(ctx context.Context, tags string) ([]*PicIma
 
 // GetPostsPage возвращает страницу публичных постов с возможной фильтрацией по тегам.
 // page - номер страницы (начиная с 1), pageSize - размер страницы.
-func (p *PicStore) GetPostsPage(ctx context.Context, page, pageSize int, tags string) ([]*PicImage, error) {
+func (p *PicStore) GetPostsPage(ctx context.Context, userID uint, page, pageSize int, tags string) ([]*PicImage, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -905,16 +933,23 @@ func (p *PicStore) GetPostsPage(ctx context.Context, page, pageSize int, tags st
 	}
 
 	// Формируем ключ кэша для страницы
-	key := fmt.Sprintf("posts:page:%d:size:%d:tags:%s", page, pageSize, tags)
+	key := fmt.Sprintf("posts:user:%v:page:%d:size:%d:tags:%s", userID, page, pageSize, tags)
+	keyTotal := fmt.Sprintf("posts:user:%v:page:%d:size:%d:tags:%s:count", userID, page, pageSize, tags)
 	var data picImages
 
 	// Пытаемся получить из кэша, если кэш включен
 	if p.isCacheEnabled() {
-		if err := p.cache.GetH(ctx, key, &data); err == nil {
-			p.recordCacheSuccess()
-			return data, nil
-		} else {
+		err := p.cache.GetH(ctx, key, &data)
+		if err != nil {
 			p.recordCacheError()
+		}
+		total, errTotal := p.cache.GetUint64(ctx, keyTotal)
+		if errTotal != nil {
+			p.recordCacheError()
+		}
+		if err == nil && errTotal == nil {
+			p.recordCacheSuccess()
+			return data, int64(total), nil
 		}
 	}
 
@@ -932,11 +967,15 @@ func (p *PicStore) GetPostsPage(ctx context.Context, page, pageSize int, tags st
 	// Вычисляем limit и offset
 	limit := pageSize
 	offset := (page - 1) * pageSize
+	isPublic := false
+	if userID == 0 {
+		isPublic = true
+	}
 
 	// Получаем страницу из хранилища (публичные посты, userID = 0)
-	images, _, err := p.store.GetPostsPage(ctx, 0, true, includeTags, excludeTags, limit, offset)
+	images, total, err := p.store.GetPostsPage(ctx, userID, isPublic, includeTags, excludeTags, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get posts page from store: %w", err)
+		return nil, 0, fmt.Errorf("failed to get posts page from store: %w", err)
 	}
 
 	// Преобразуем models.Image в PicImage
@@ -947,9 +986,9 @@ func (p *PicStore) GetPostsPage(ctx context.Context, page, pageSize int, tags st
 			continue
 		}
 		// Пропускаем зашифрованные изображения (публичные посты не должны быть зашифрованы, но на всякий случай)
-		if img.IsEncrypted {
-			continue
-		}
+		// if img.IsEncrypted {
+		// 	continue
+		// }
 		fullPath := filepath.Join(p.picturePath, img.Path)
 		pic := &PicImage{
 			ID:          img.ID,
@@ -987,23 +1026,45 @@ func (p *PicStore) GetPostsPage(ctx context.Context, page, pageSize int, tags st
 		} else {
 			p.recordCacheSuccess()
 		}
+		if err := p.cache.SetUint64(ctx, keyTotal, uint64(total), p.cfg.CacheTTL); err != nil {
+			p.recordCacheError()
+			p.log.Error("failed caching page count", zap.Error(err))
+		} else {
+			p.recordCacheSuccess()
+		}
 	}
-	return pagePosts, nil
+	return pagePosts, total, nil
 }
 
-// invalidateCache очищает кэши images:all и posts:public
+// invalidateCache очищает кэши images:all и posts:public, а также навигационные ключи.
 func (p *PicStore) invalidateCache(ctx context.Context) {
 	// Если кэш отключен, не пытаемся удалять ключи
 	if !p.isCacheEnabled() {
 		return
 	}
-	p.locker[nsImagesAll].Lock()
+	p.lock(nsImagesAll)
 	_ = p.cache.Remove(ctx, nsImagesAll) // удаляем кэш
-	p.locker[nsImagesAll].Unlock()
+	p.unlock(nsImagesAll)
 
-	p.locker[nsPostsPublic].Lock()
+	p.lock(nsPostsPublic)
 	_ = p.cache.Remove(ctx, nsPostsPublic) // удаляем кэш
-	p.locker[nsPostsPublic].Unlock()
+	p.unlock(nsPostsPublic)
+
+	// Удаляем навигационные ключи
+	pattern := "navigation:*"
+	keys, err := p.cache.Keys(ctx, pattern)
+	if err != nil {
+		p.log.Warn("failed to get navigation cache keys", zap.Error(err))
+	} else {
+		for _, key := range keys {
+			if err := p.cache.Remove(ctx, key); err != nil {
+				p.log.Warn("failed to remove navigation cache key", zap.String("key", key), zap.Error(err))
+			}
+		}
+		if len(keys) > 0 {
+			p.log.Debug("navigation cache invalidated", zap.Int("keys", len(keys)))
+		}
+	}
 }
 
 // UpdateImage обновляет изображение (публичность, теги)
@@ -1093,7 +1154,7 @@ func (p *PicStore) GetTagsWithCount(ctx context.Context) (map[string]int, error)
 // GetUserPosts возвращает все изображения пользователя (включая приватные)
 func (p *PicStore) GetUserPosts(ctx context.Context, userID uint) ([]*PicImage, error) {
 	// Пока используем getImages без фильтра по публичности, но с фильтром по пользователю
-	allImages, err := p.getImages(ctx, func(pi *PicImage) bool { return pi.UserID == userID }, false)
+	allImages, err := p.getImages(ctx, userID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1146,6 +1207,15 @@ func (p *PicStore) RecordView(ctx context.Context, imageID uint, userID uint) (b
 	return p.viewTracker.RecordView(ctx, imageID, userID)
 }
 
+// makeNavigationCacheKey генерирует ключ кеша для навигационного контекста.
+func (p *PicStore) makeNavigationCacheKey(imageID uint, windowSize int, includeTags, excludeTags []string, currentUserID uint) string {
+	sort.Strings(includeTags)
+	sort.Strings(excludeTags)
+	inc := strings.Join(includeTags, ",")
+	exc := strings.Join(excludeTags, ",")
+	return fmt.Sprintf("navigation:%d:%d:%s:%s:%d", imageID, windowSize, inc, exc, currentUserID)
+}
+
 // GetNavigationContext возвращает окно изображений вокруг указанного изображения для навигации.
 // Использует фильтрацию по тегам (includeTags, excludeTags) и определяет контекст (публичный/приватный) на основе текущего изображения и текущего пользователя.
 // Размер окна задаётся параметром windowSize (количество изображений в каждую сторону).
@@ -1160,6 +1230,20 @@ func (p *PicStore) GetNavigationContext(ctx context.Context, imageID uint, windo
 		zap.Strings("excludeTags", excludeTags),
 		zap.Uint("currentUserID", currentUserID))
 
+	// Пытаемся получить из кеша, если кеш включен
+	cacheKey := p.makeNavigationCacheKey(imageID, windowSize, includeTags, excludeTags, currentUserID)
+	var cachedCtx NavigationContext
+	if p.isCacheEnabled() {
+		if err := p.cache.GetH(ctx, cacheKey, &cachedCtx); err == nil {
+			p.recordCacheSuccess()
+			p.log.Debug("navigation context cache hit", zap.String("key", cacheKey))
+			return &cachedCtx, nil
+		} else {
+			p.recordCacheError()
+			p.log.Debug("navigation context cache miss", zap.String("key", cacheKey), zap.Error(err))
+		}
+	}
+
 	// Получаем текущее изображение
 	img, err := p.store.GetImageByID(ctx, imageID)
 	if err != nil {
@@ -1172,9 +1256,9 @@ func (p *PicStore) GetNavigationContext(ctx context.Context, imageID uint, windo
 	// Определяем контекст фильтрации на основе прав текущего пользователя
 	var userID uint
 	var isPublic bool
-	if currentUserID == img.UserID {
+	if currentUserID > 0 {
 		// Пользователь является владельцем изображения — используем приватный контекст
-		userID = img.UserID
+		userID = currentUserID
 		isPublic = false
 	} else if img.IsPublic {
 		// Изображение публичное, а пользователь не владелец — используем публичный контекст
@@ -1331,9 +1415,9 @@ func (p *PicStore) GetNavigationContext(ctx context.Context, imageID uint, windo
 		nextImages = append(nextImages, pic)
 	}
 
-	// Определяем, есть ли изображения за пределами окна
-	hasPrev := startIdx > 0
-	hasNext := endIdx < len(allIDs)
+	// Определяем, есть ли изображения в пределах окна (prev/next не пусты)
+	hasPrev := len(prevImages) > 0
+	hasNext := len(nextImages) > 0
 
 	// Общее количество изображений в фильтре
 	total := len(allIDs)
@@ -1349,6 +1433,17 @@ func (p *PicStore) GetNavigationContext(ctx context.Context, imageID uint, windo
 		Filter:   strings.Join(includeTags, " "),
 		UserID:   userID,
 		IsPublic: isPublic,
+	}
+
+	// Сохраняем в кеш, если кеш включен
+	if p.isCacheEnabled() {
+		if err := p.cache.SetH(ctx, cacheKey, ctxResult, p.cfg.CacheTTL); err != nil {
+			p.recordCacheError()
+			p.log.Warn("failed to cache navigation context", zap.String("key", cacheKey), zap.Error(err))
+		} else {
+			p.recordCacheSuccess()
+			p.log.Debug("navigation context cached", zap.String("key", cacheKey))
+		}
 	}
 
 	p.log.Debug("GetNavigationContext completed",

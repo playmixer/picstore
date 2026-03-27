@@ -22,12 +22,12 @@ type PicImage struct {
 	UserID      uint
 	Tags        string
 	Views       uint      // количество просмотров
-	IsEncrypted bool      `json:"-"` // не сериализуется в JSON
-	Salt        []byte    `json:"-"` // соль для шифрования
-	Nonce       []byte    `json:"-"` // одноразовый номер для шифрования
-	Data        []byte    `json:"-"` // бинарные данные изображения (загружаются по требованию)
-	Next        *PicImage `json:"-"` // ссылка на следующее изображение в навигации
-	Prev        *PicImage `json:"-"` // ссылка на предыдущее изображение в навигации
+	IsEncrypted bool      `json:"encrypted"` // не сериализуется в JSON
+	Salt        []byte    `json:"-"`         // соль для шифрования
+	Nonce       []byte    `json:"-"`         // одноразовый номер для шифрования
+	Data        []byte    `json:"-"`         // бинарные данные изображения (загружаются по требованию)
+	Next        *PicImage `json:"-"`         // ссылка на следующее изображение в навигации
+	Prev        *PicImage `json:"-"`         // ссылка на предыдущее изображение в навигации
 }
 
 // picImages — срез PicImage с поддержкой сериализации в Redis.
@@ -128,10 +128,20 @@ type NavigationContext struct {
 	Prev     []*PicImage `json:"prev,omitempty"`      // предыдущие изображения (ближайшие первыми)
 	Next     []*PicImage `json:"next,omitempty"`      // следующие изображения (ближайшие первыми)
 	Total    int         `json:"total"`               // общее количество изображений в текущем контексте (фильтр + пользователь)
-	HasPrev  bool        `json:"has_prev"`            // есть ли предыдущее изображение за пределами окна
-	HasNext  bool        `json:"has_next"`            // есть ли следующее изображение за пределами окна
+	HasPrev  bool        `json:"has_prev"`            // есть ли предыдущее изображение в пределах окна (массив Prev не пуст)
+	HasNext  bool        `json:"has_next"`            // есть ли следующее изображение в пределах окна (массив Next не пуст)
 	Window   int         `json:"window"`              // размер окна (сколько изображений в каждую сторону)
 	Filter   string      `json:"filter,omitempty"`    // применённый фильтр тегов (строка)
 	UserID   uint        `json:"user_id,omitempty"`   // ID пользователя (0 для публичных)
 	IsPublic bool        `json:"is_public,omitempty"` // флаг публичного контекста
+}
+
+// MarshalBinary реализует encoding.BinaryMarshaler для сериализации в Redis.
+func (n *NavigationContext) MarshalBinary() ([]byte, error) {
+	return json.Marshal(n)
+}
+
+// UnmarshalBinary реализует encoding.BinaryUnmarshaler для десериализации из Redis.
+func (n *NavigationContext) UnmarshalBinary(data []byte) error {
+	return json.Unmarshal(data, n)
 }

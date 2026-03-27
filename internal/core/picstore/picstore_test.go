@@ -145,6 +145,10 @@ func (m *mockCache) GetUint64(ctx context.Context, key string) (uint64, error) {
 	return 0, nil
 }
 
+func (m *mockCache) SetUint64(ctx context.Context, key string, value uint64, ttl time.Duration) error {
+	return nil
+}
+
 func (m *mockCache) IncrBy(ctx context.Context, key string, delta int64) (int64, error) {
 	return 0, nil
 }
@@ -228,6 +232,7 @@ type controllableStore struct {
 		isEncrypted bool, salt, nonce, previewSalt, previewNonce []byte,
 		processingStatus, originalPath, tempStoragePath string) (*models.Image, error)
 	getImageFunc            func(ctx context.Context, path string) (*models.Image, error)
+	getImageByIDFunc        func(ctx context.Context, imageID uint) (*models.Image, error)
 	getImagesFunc           func(ctx context.Context) ([]*models.Image, error)
 	updateImageFunc         func(ctx context.Context, userID uint, imageID uint, isPublic *bool, tags *string) error
 	delImagesFunc           func(ctx context.Context, userID uint, imageIDs []uint) error
@@ -287,6 +292,9 @@ func (c *controllableStore) UpdateImageAfterProcessing(ctx context.Context, imag
 }
 
 func (c *controllableStore) GetImageByID(ctx context.Context, imageID uint) (*models.Image, error) {
+	if c.getImageByIDFunc != nil {
+		return c.getImageByIDFunc(ctx, imageID)
+	}
 	return nil, nil
 }
 
@@ -360,6 +368,7 @@ type controllableCache struct {
 	setNXFunc     func(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
 	keysFunc      func(ctx context.Context, pattern string) ([]string, error)
 	getUint64Func func(ctx context.Context, key string) (uint64, error)
+	setUint64Func func(ctx context.Context, key string, value uint64, ttl time.Duration) error
 	incrByFunc    func(ctx context.Context, key string, delta int64) (int64, error)
 }
 
@@ -424,6 +433,13 @@ func (c *controllableCache) GetUint64(ctx context.Context, key string) (uint64, 
 		return c.getUint64Func(ctx, key)
 	}
 	return 0, nil
+}
+
+func (c *controllableCache) SetUint64(ctx context.Context, key string, value uint64, ttl time.Duration) error {
+	if c.setUint64Func != nil {
+		return c.setUint64Func(ctx, key, value, ttl)
+	}
+	return nil
 }
 
 func (c *controllableCache) IncrBy(ctx context.Context, key string, delta int64) (int64, error) {
@@ -1028,7 +1044,7 @@ func TestGetPostsPage(t *testing.T) {
 	// Тест 1: первая страница, размер страницы 2, без тегов
 	page := 1
 	pageSize := 2
-	posts, err := ps.GetPostsPage(context.Background(), page, pageSize, "")
+	posts, _, err := ps.GetPostsPage(context.Background(), uint(0), page, pageSize, "")
 	if err != nil {
 		t.Fatalf("GetPostsPage failed: %v", err)
 	}
@@ -1041,7 +1057,7 @@ func TestGetPostsPage(t *testing.T) {
 
 	// Тест 2: вторая страница, размер страницы 2
 	page = 2
-	posts, err = ps.GetPostsPage(context.Background(), page, pageSize, "")
+	posts, _, err = ps.GetPostsPage(context.Background(), uint(0), page, pageSize, "")
 	if err != nil {
 		t.Fatalf("GetPostsPage failed: %v", err)
 	}
@@ -1054,7 +1070,7 @@ func TestGetPostsPage(t *testing.T) {
 
 	// Тест 3: третья страница, размер страницы 2 (остаток 1)
 	page = 3
-	posts, err = ps.GetPostsPage(context.Background(), page, pageSize, "")
+	posts, _, err = ps.GetPostsPage(context.Background(), uint(0), page, pageSize, "")
 	if err != nil {
 		t.Fatalf("GetPostsPage failed: %v", err)
 	}
@@ -1067,7 +1083,7 @@ func TestGetPostsPage(t *testing.T) {
 
 	// Тест 4: страница за пределами данных (пустой результат)
 	page = 10
-	posts, err = ps.GetPostsPage(context.Background(), page, pageSize, "")
+	posts, _, err = ps.GetPostsPage(context.Background(), uint(0), page, pageSize, "")
 	if err != nil {
 		t.Fatalf("GetPostsPage failed: %v", err)
 	}
@@ -1078,7 +1094,7 @@ func TestGetPostsPage(t *testing.T) {
 	// Тест 5: фильтрация по тегу "nature", страница 1, размер 2
 	page = 1
 	pageSize = 2
-	posts, err = ps.GetPostsPage(context.Background(), page, pageSize, "nature")
+	posts, _, err = ps.GetPostsPage(context.Background(), uint(0), page, pageSize, "nature")
 	if err != nil {
 		t.Fatalf("GetPostsPage with tags failed: %v", err)
 	}
@@ -1109,7 +1125,7 @@ func TestGetPostsPage(t *testing.T) {
 		}
 		return nil
 	}
-	posts, err = ps.GetPostsPage(context.Background(), 1, 5, "")
+	posts, _, err = ps.GetPostsPage(context.Background(), uint(0), 1, 5, "")
 	if err != nil {
 		t.Fatalf("GetPostsPage with cache failed: %v", err)
 	}

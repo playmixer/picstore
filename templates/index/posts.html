@@ -291,6 +291,41 @@
     }
 })();
 </script>
+<script>
+(function() {
+    const ENCRYPTION_KEY_STORAGE = 'picstore_encryption_key';
+    const key = localStorage.getItem(ENCRYPTION_KEY_STORAGE);
+    if (!key) return;
+
+    // Обновление ссылок на просмотр
+    const links = document.querySelectorAll('.image-box a[href^="/view/"]');
+    links.forEach(link => {
+        const url = new URL(link.href, window.location.origin);
+        url.searchParams.set('key', key);
+        link.href = url.toString();
+    });
+
+    // Замена placeholder на изображение
+    const placeholders = document.querySelectorAll('.encrypted-placeholder[data-encrypted="true"]');
+    placeholders.forEach(placeholder => {
+        const path = placeholder.getAttribute('data-path');
+        const previewPath = placeholder.getAttribute('data-preview-path');
+        const usePath = previewPath && previewPath.trim() !== '' ? previewPath : path;
+        const img = document.createElement('img');
+        img.src = `/view/${usePath}?key=${encodeURIComponent(key)}&view=file`;
+        img.alt = 'Зашифрованное изображение';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain';
+        img.style.display = 'block';
+
+        const parent = placeholder.parentNode; // это <a>
+        if (parent) {
+            parent.replaceChild(img, placeholder);
+        }
+    });
+})();
+</script>
 
 {{ template "footer.html" . }}
 {{ end }}

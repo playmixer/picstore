@@ -71,6 +71,7 @@ type Cache interface {
 	SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
 	Keys(ctx context.Context, pattern string) ([]string, error)
 	GetUint64(ctx context.Context, key string) (uint64, error)
+	SetUint64(ctx context.Context, key string, value uint64, ttl time.Duration) error
 }
 
 func NewCache(cfg ConfigCache) (Cache, error) {

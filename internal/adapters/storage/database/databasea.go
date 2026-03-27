@@ -501,7 +501,7 @@ func (s *Storage) GetFilteredImageIDs(ctx context.Context, userID uint, includeT
 	} else {
 		query = query.Where("is_public = ?", true)
 		// В публичном контексте исключаем зашифрованные изображения и неудачные обработки
-		query = query.Where("is_encrypted = ?", false)
+		// query = query.Where("is_encrypted = ?", false)
 	}
 	// Исключаем неудачные обработки для всех контекстов
 	query = query.Where("processing_status IS NULL OR processing_status != ?", "failed")
@@ -543,7 +543,7 @@ func (s *Storage) GetPostsPage(ctx context.Context, userID uint, isPublic bool, 
 		query = query.Where("is_public = ?", true)
 	}
 	// исключаем зашифрованные изображения и неудачные обработки
-	query = query.Where("is_encrypted = ?", false)
+	// query = query.Where("is_encrypted = ?", false)
 	query = query.Where("processing_status IS NULL OR processing_status != ?", "failed")
 	// фильтр includeTags
 	for _, tag := range includeTags {
